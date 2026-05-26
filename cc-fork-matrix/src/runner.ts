@@ -3,16 +3,11 @@ import { resolve } from "node:path";
 import { createBackend } from "./backend.ts";
 import { changedFiles, createWorktree, diffPatch, diffStat } from "./git.ts";
 import { initialMetadata, upsertVariant, writeMetadata } from "./metadata.ts";
+import { buildVariantOpenCommand } from "./open-command.ts";
 import { redact } from "./redaction.ts";
 import { renderReport, writeVariantSummary } from "./report.ts";
-import { runCommand, shellQuote } from "./shell.ts";
-import type {
-  BackendId,
-  ResolvedRun,
-  ResolvedVariant,
-  RunMetadata,
-  VariantResult,
-} from "./types.ts";
+import { runCommand } from "./shell.ts";
+import type { ResolvedRun, ResolvedVariant, RunMetadata, VariantResult } from "./types.ts";
 
 const TOOL_VERSION = "0.1.0";
 
@@ -56,17 +51,6 @@ async function collectDiff(variant: ResolvedVariant): Promise<{
   return { diffstat: stat, changedFiles: files, patch };
 }
 
-function resumeCommand(
-  backend: BackendId,
-  variant: ResolvedVariant,
-  sessionId?: string,
-): string | undefined {
-  if (backend !== "claude-cli" || !sessionId) {
-    return undefined;
-  }
-  return `cd ${shellQuote(variant.worktree)} && claude --resume ${shellQuote(sessionId)}`;
-}
-
 async function runVariant(args: {
   run: ResolvedRun;
   variant: ResolvedVariant;
@@ -106,6 +90,8 @@ async function runVariant(args: {
   const diff = await collectDiff(variant);
   await writeFile(variant.diffPatchPath, diff.patch);
   await writeFile(variant.verificationLogPath, verificationLog);
+  const sessionIdAvailability =
+    backendResult.sessionIdAvailability ?? (backendResult.sessionId ? "captured" : undefined);
   const result: VariantResult = {
     name: variant.name,
     slug: variant.slug,
@@ -118,14 +104,20 @@ async function runVariant(args: {
     durationMs: Date.now() - started,
     backendExitCode: backendResult.exitCode,
     backendSignal: backendResult.signal,
-    sessionIdAvailability:
-      backendResult.sessionIdAvailability ?? (backendResult.sessionId ? "captured" : undefined),
+    sessionIdAvailability,
     sessionIdUnavailableReason: backendResult.sessionIdUnavailableReason,
+    openCommand: buildVariantOpenCommand({
+      backend: run.backend,
+      matrix: run.matrix,
+      variant,
+      sessionId: backendResult.sessionId,
+      sessionIdAvailability,
+      sessionIdUnavailableReason: backendResult.sessionIdUnavailableReason,
+    }),
     verification,
     diffstat: diff.diffstat,
     changedFiles: diff.changedFiles,
     artifactDir: variant.artifactDir,
-    resumeCommand: resumeCommand(run.backend, variant, backendResult.sessionId),
     error: backendResult.status === "failed" ? redact(backendResult.stderr).trim() : undefined,
   };
   await writeFile(variant.metadataPath, `${JSON.stringify(result, null, 2)}\n`);
@@ -183,6 +175,11 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
           status: "fork_failed",
           branch: variant.branch,
           worktree: variant.worktree,
+          openCommand: buildVariantOpenCommand({
+            backend: resolved.backend,
+            matrix: resolved.matrix,
+            variant,
+          }),
           verification: [],
           diffstat: "",
           changedFiles: [],
