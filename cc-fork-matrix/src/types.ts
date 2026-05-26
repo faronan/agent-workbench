@@ -37,6 +37,9 @@ export interface MatrixDefinition {
       permissionMode?: string;
       maxTurns?: number;
     };
+    codex?: {
+      command?: string;
+    };
   };
   verification?: {
     commands?: VerificationCommand[];
@@ -83,6 +86,8 @@ export interface ResolvedRun {
   stateRoot: string;
   runDir: string;
   sourceSession: string;
+  sourceResolvedFrom: "explicit" | "env";
+  sourceEnv?: "CLAUDE_CODE_SESSION_ID" | "CODEX_THREAD_ID";
   backend: BackendId;
   dirtyBase: boolean;
   dirtyBaseStatus: string;
@@ -119,6 +124,8 @@ export interface BackendRunResult {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
   sessionId?: string;
+  sessionIdAvailability?: "captured" | "unavailable";
+  sessionIdUnavailableReason?: string;
   summary: string;
   stdout: string;
   stderr: string;
@@ -144,6 +151,8 @@ export interface VariantResult {
   durationMs?: number;
   backendExitCode?: number | null;
   backendSignal?: NodeJS.Signals | null;
+  sessionIdAvailability?: "captured" | "unavailable";
+  sessionIdUnavailableReason?: string;
   verification: VerificationResult[];
   diffstat: string;
   changedFiles: string[];
@@ -165,6 +174,8 @@ export interface RunMetadata {
   source: {
     backend: BackendId;
     session: string;
+    resolvedFrom?: "explicit" | "env";
+    env?: "CLAUDE_CODE_SESSION_ID" | "CODEX_THREAD_ID";
   };
   matrixHash: string;
   dirtyBase: boolean;

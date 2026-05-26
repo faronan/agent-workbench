@@ -25,7 +25,7 @@ Usage:
 Options:
   --repo <path>
   --source <current|session-id|session-name>
-  --backend <claude-cli>
+  --backend <claude-cli|codex-cli>
   --concurrency <n>
   --state-root <path>
   --run-id <id>

@@ -16,6 +16,12 @@ export async function printOpenCommand(runDir: string, variantName?: string): Pr
     throw new UserFacingError(`No variant found for ${variantName ?? "(all)"}.`);
   }
   return `${variants
-    .map((variant) => variant.resumeCommand ?? `# ${variant.name}: no session id was captured`)
+    .map(
+      (variant) =>
+        variant.resumeCommand ??
+        `# ${variant.name}: no session id was captured${
+          variant.sessionIdUnavailableReason ? ` (${variant.sessionIdUnavailableReason})` : ""
+        }`,
+    )
     .join("\n")}\n`;
 }

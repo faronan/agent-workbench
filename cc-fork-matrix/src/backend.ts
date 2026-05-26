@@ -1,10 +1,11 @@
 import { UserFacingError } from "./errors.ts";
-import { runCommand } from "./shell.ts";
+import { runCommand, runInteractiveCommand } from "./shell.ts";
 import type { BackendId, BackendRunResult, MatrixDefinition, ResolvedVariant } from "./types.ts";
 
 export interface AgentBackend {
   checkAvailability(): Promise<void>;
   startForkedSession(args: {
+    repoRoot: string;
     sourceSession: string;
     runId: string;
     variant: ResolvedVariant;
@@ -52,6 +53,35 @@ function extractSummary(stdout: string): string {
   return stdout.trim().slice(0, 4000);
 }
 
+function buildVariantPrompt(variant: ResolvedVariant): string {
+  return [
+    "You are running as a cc-fork-matrix variant.",
+    `Variant: ${variant.name}`,
+    `Branch: ${variant.branch}`,
+    `Worktree: ${variant.worktree}`,
+    "",
+    "Rules:",
+    "- Work only inside this worktree and branch.",
+    "- Do not run git commit, git push, git merge, git rebase, git stash, or destructive cleanup.",
+    "- Verification is run by cc-fork-matrix after you finish.",
+    "- Do not include secrets in your final response.",
+    "",
+    "Variant task:",
+    variant.prompt,
+  ].join("\n");
+}
+
+function assertCodexForkHelp(command: string, text: string): void {
+  const hasUsage = text.includes("Usage: codex fork");
+  const hasSessionId = text.includes("[SESSION_ID]");
+  const hasWorkdirFlag = text.includes("-C") || text.includes("--cd");
+  if (!hasUsage || !hasSessionId || !hasWorkdirFlag) {
+    throw new UserFacingError(
+      `Codex CLI "${command}" does not expose the expected fork surface. Expected "codex fork [SESSION_ID] [PROMPT]" with -C/--cd.`,
+    );
+  }
+}
+
 export class ClaudeCliBackend implements AgentBackend {
   private readonly command: string;
 
@@ -69,27 +99,14 @@ export class ClaudeCliBackend implements AgentBackend {
   }
 
   async startForkedSession(args: {
+    repoRoot: string;
     sourceSession: string;
     runId: string;
     variant: ResolvedVariant;
     matrix: MatrixDefinition;
   }): Promise<BackendRunResult> {
     const claude = args.matrix.backend?.claude ?? {};
-    const prompt = [
-      "You are running as a cc-fork-matrix variant.",
-      `Variant: ${args.variant.name}`,
-      `Branch: ${args.variant.branch}`,
-      `Worktree: ${args.variant.worktree}`,
-      "",
-      "Rules:",
-      "- Work only inside this worktree and branch.",
-      "- Do not run git commit, git push, git merge, git rebase, git stash, or destructive cleanup.",
-      "- Verification is run by cc-fork-matrix after you finish.",
-      "- Do not include secrets in your final response.",
-      "",
-      "Variant task:",
-      args.variant.prompt,
-    ].join("\n");
+    const prompt = buildVariantPrompt(args.variant);
     const cliArgs = [
       "-p",
       "--resume",
@@ -114,6 +131,7 @@ export class ClaudeCliBackend implements AgentBackend {
       exitCode: result.code,
       signal: result.signal,
       sessionId,
+      sessionIdAvailability: sessionId ? "captured" : undefined,
       summary: extractSummary(result.stdout),
       stdout: result.stdout,
       stderr: result.stderr,
@@ -121,9 +139,59 @@ export class ClaudeCliBackend implements AgentBackend {
   }
 }
 
-export function createBackend(id: BackendId, matrix: MatrixDefinition): AgentBackend {
-  if (id !== "claude-cli") {
-    throw new UserFacingError(`${id} backend is reserved for a future release.`);
+export class CodexCliBackend implements AgentBackend {
+  private readonly command: string;
+
+  constructor(command: string) {
+    this.command = command;
   }
-  return new ClaudeCliBackend(matrix.backend?.claude?.command ?? "claude");
+
+  async checkAvailability(): Promise<void> {
+    const result = await runCommand(this.command, ["fork", "--help"], process.cwd());
+    if (result.code !== 0) {
+      throw new UserFacingError(
+        `Codex CLI is not available as "${this.command}". Install it or set backend.codex.command.`,
+      );
+    }
+    assertCodexForkHelp(this.command, `${result.stdout}\n${result.stderr}`);
+  }
+
+  async startForkedSession(args: {
+    repoRoot: string;
+    sourceSession: string;
+    runId: string;
+    variant: ResolvedVariant;
+    matrix: MatrixDefinition;
+  }): Promise<BackendRunResult> {
+    const prompt = buildVariantPrompt(args.variant);
+    const cliArgs = ["fork", args.sourceSession, prompt, "-C", args.variant.worktree];
+    const result = await runInteractiveCommand(this.command, cliArgs, args.repoRoot);
+    const status =
+      result.signal === "SIGINT" || result.signal === "SIGTERM"
+        ? "interrupted"
+        : result.code === 0
+          ? "success"
+          : "failed";
+    return {
+      status,
+      exitCode: result.code,
+      signal: result.signal,
+      sessionIdAvailability: "unavailable",
+      sessionIdUnavailableReason:
+        "Codex CLI does not expose the launched fork session id in interactive launcher mode.",
+      summary: "",
+      stdout: result.stdout,
+      stderr: result.stderr,
+    };
+  }
+}
+
+export function createBackend(id: BackendId, matrix: MatrixDefinition): AgentBackend {
+  if (id === "claude-cli") {
+    return new ClaudeCliBackend(matrix.backend?.claude?.command ?? "claude");
+  }
+  if (id === "codex-cli") {
+    return new CodexCliBackend(matrix.backend?.codex?.command ?? "codex");
+  }
+  throw new UserFacingError(`${id} backend is reserved for a future release.`);
 }

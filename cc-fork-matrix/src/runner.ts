@@ -6,7 +6,13 @@ import { initialMetadata, upsertVariant, writeMetadata } from "./metadata.ts";
 import { redact } from "./redaction.ts";
 import { renderReport, writeVariantSummary } from "./report.ts";
 import { runCommand, shellQuote } from "./shell.ts";
-import type { ResolvedRun, ResolvedVariant, RunMetadata, VariantResult } from "./types.ts";
+import type {
+  BackendId,
+  ResolvedRun,
+  ResolvedVariant,
+  RunMetadata,
+  VariantResult,
+} from "./types.ts";
 
 const TOOL_VERSION = "0.1.0";
 
@@ -50,8 +56,12 @@ async function collectDiff(variant: ResolvedVariant): Promise<{
   return { diffstat: stat, changedFiles: files, patch };
 }
 
-function resumeCommand(variant: ResolvedVariant, sessionId?: string): string | undefined {
-  if (!sessionId) {
+function resumeCommand(
+  backend: BackendId,
+  variant: ResolvedVariant,
+  sessionId?: string,
+): string | undefined {
+  if (backend !== "claude-cli" || !sessionId) {
     return undefined;
   }
   return `cd ${shellQuote(variant.worktree)} && claude --resume ${shellQuote(sessionId)}`;
@@ -71,6 +81,7 @@ async function runVariant(args: {
   await createWorktree(run.repoRoot, variant.branch, variant.worktree, run.baseRef);
   const backend = createBackend(run.backend, run.matrix);
   const backendResult = await backend.startForkedSession({
+    repoRoot: run.repoRoot,
     sourceSession: run.sourceSession,
     runId: run.runId,
     variant,
@@ -79,7 +90,11 @@ async function runVariant(args: {
   let verification: VariantResult["verification"] = [];
   let verificationLog = "";
   let status: VariantResult["status"] =
-    backendResult.status === "success" ? "succeeded" : "fork_failed";
+    backendResult.status === "success"
+      ? "succeeded"
+      : backendResult.status === "interrupted"
+        ? "interrupted"
+        : "fork_failed";
   if (backendResult.status === "success" && variant.verificationCommands.length > 0) {
     const verificationResult = await runVerification(variant);
     verification = verificationResult.results;
@@ -103,11 +118,14 @@ async function runVariant(args: {
     durationMs: Date.now() - started,
     backendExitCode: backendResult.exitCode,
     backendSignal: backendResult.signal,
+    sessionIdAvailability:
+      backendResult.sessionIdAvailability ?? (backendResult.sessionId ? "captured" : undefined),
+    sessionIdUnavailableReason: backendResult.sessionIdUnavailableReason,
     verification,
     diffstat: diff.diffstat,
     changedFiles: diff.changedFiles,
     artifactDir: variant.artifactDir,
-    resumeCommand: resumeCommand(variant, backendResult.sessionId),
+    resumeCommand: resumeCommand(run.backend, variant, backendResult.sessionId),
     error: backendResult.status === "failed" ? redact(backendResult.stderr).trim() : undefined,
   };
   await writeFile(variant.metadataPath, `${JSON.stringify(result, null, 2)}\n`);
@@ -130,6 +148,8 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
     baseHead: resolved.baseHead,
     backend: resolved.backend,
     sourceSession: resolved.sourceSession,
+    sourceResolvedFrom: resolved.sourceResolvedFrom,
+    sourceEnv: resolved.sourceEnv,
     matrixHash,
     dirtyBase: resolved.dirtyBase,
     dirtyBaseStatus: resolved.dirtyBaseStatus,
@@ -150,7 +170,10 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
           metadataPath,
           matrixHash,
         });
-        if (resolved.failFast && result.status !== "succeeded") {
+        if (
+          result.status === "interrupted" ||
+          (resolved.failFast && result.status !== "succeeded")
+        ) {
           shouldStop = true;
         }
       } catch (error) {
@@ -221,6 +244,8 @@ export function dryRunJson(resolved: ResolvedRun): unknown {
     source: {
       backend: resolved.backend,
       session: resolved.sourceSession,
+      resolvedFrom: resolved.sourceResolvedFrom,
+      env: resolved.sourceEnv,
     },
     dirtyBase: resolved.dirtyBase,
     concurrency: resolved.concurrency,

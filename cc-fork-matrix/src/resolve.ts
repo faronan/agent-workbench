@@ -47,12 +47,32 @@ export async function resolveRun(
 
   const backend = options.backend ?? matrix.source?.backend ?? "claude-cli";
   const sourceRaw = options.source ?? matrix.source?.session ?? "current";
-  const sourceSession =
-    sourceRaw === "current" ? (process.env.CLAUDE_CODE_SESSION_ID ?? "") : sourceRaw;
-  if (!sourceSession) {
-    throw new UserFacingError(
-      "source is current, but CLAUDE_CODE_SESSION_ID is not set. Pass --source <session-id-or-name>.",
-    );
+  let sourceSession: string;
+  let sourceResolvedFrom: ResolvedRun["sourceResolvedFrom"];
+  let sourceEnv: ResolvedRun["sourceEnv"];
+  if (sourceRaw === "current") {
+    if (backend === "codex-cli") {
+      sourceSession = process.env.CODEX_THREAD_ID ?? "";
+      sourceResolvedFrom = "env";
+      sourceEnv = "CODEX_THREAD_ID";
+      if (!sourceSession) {
+        throw new UserFacingError(
+          "source is current for codex-cli, but CODEX_THREAD_ID is not set. Pass --source <session-id>.",
+        );
+      }
+    } else {
+      sourceSession = process.env.CLAUDE_CODE_SESSION_ID ?? "";
+      sourceResolvedFrom = "env";
+      sourceEnv = "CLAUDE_CODE_SESSION_ID";
+      if (!sourceSession) {
+        throw new UserFacingError(
+          "source is current, but CLAUDE_CODE_SESSION_ID is not set. Pass --source <session-id-or-name>.",
+        );
+      }
+    }
+  } else {
+    sourceSession = sourceRaw;
+    sourceResolvedFrom = "explicit";
   }
 
   const matrixSlug = slugify(matrix.name);
@@ -62,6 +82,11 @@ export async function resolveRun(
   );
   const runDir = resolve(stateRoot, "runs", runId);
   const concurrency = options.concurrency ?? matrix.run?.concurrency ?? 1;
+  if (backend === "codex-cli" && concurrency > 1) {
+    throw new UserFacingError(
+      "codex-cli backend launches interactive fork sessions and requires concurrency: 1.",
+    );
+  }
   const failFast = options.failFast ?? matrix.run?.failFast ?? false;
   const verificationCommands = options.noVerify ? [] : (matrix.verification?.commands ?? []);
   assertSafeVerificationCommands(verificationCommands);
@@ -122,6 +147,8 @@ export async function resolveRun(
     stateRoot,
     runDir,
     sourceSession,
+    sourceResolvedFrom,
+    sourceEnv,
     backend,
     dirtyBase,
     dirtyBaseStatus,

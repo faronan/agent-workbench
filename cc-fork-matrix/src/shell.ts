@@ -61,6 +61,37 @@ export function runCommand(
   });
 }
 
+export function runInteractiveCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+  options: { env?: NodeJS.ProcessEnv } = {},
+): Promise<CommandResult> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd,
+      env: { ...process.env, ...options.env },
+      stdio: "inherit",
+    });
+    child.on("error", (error) => {
+      resolve({
+        code: 127,
+        signal: null,
+        stdout: "",
+        stderr: error.message,
+      });
+    });
+    child.on("close", (code, signal) => {
+      resolve({
+        code,
+        signal,
+        stdout: "",
+        stderr: code === 0 ? "" : `${command} exited with code ${code ?? "signal"}.`,
+      });
+    });
+  });
+}
+
 export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
