@@ -1,0 +1,19 @@
+{
+  "name": "cc-fork-matrix",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cc-fork-matrix": "./src/cli.ts"
+  },
+  "scripts": {
+    "build": "node --experimental-strip-types src/cli.ts --help >/dev/null && node --experimental-strip-types scripts/typecheck.mjs",
+    "lint": "biome check .",
+    "test": "node --experimental-strip-types --test \"test/**/*.test.ts\"",
+    "typecheck": "node --experimental-strip-types scripts/typecheck.mjs"
+  },
+  "engines": {
+    "node": ">=24.0.0",
+    "pnpm": ">=11.0.0"
+  }
+}
