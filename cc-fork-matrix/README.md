@@ -10,7 +10,8 @@ diffs, metadata, and a comparison report without copying raw transcripts or prom
 cc-fork-matrix dry-run matrix.yaml
 cc-fork-matrix run matrix.yaml
 cc-fork-matrix report ../.cc-fork-matrix/my-run/runs/20260526T200000
-cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract --print-command
+cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract
+cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract --json
 ```
 
 From Claude Code, use the bundled skill template in
@@ -86,7 +87,33 @@ running outside a Codex-managed session.
 Before launching variants, the backend runs `codex fork --help` and verifies that
 the installed CLI exposes `codex fork [SESSION_ID] [PROMPT]` with `-C/--cd`.
 The launched fork session id is not available from the interactive CLI, so reports
-record the session as unavailable and do not emit a Codex resume command.
+record the session as unavailable and emit a worktree-open command such as
+`cd <worktree> && codex`.
+
+## Open Command Contract
+
+Each variant metadata file records an `openCommand` object instead of a legacy
+`resumeCommand` string. The command is backend-aware and safe to show in reports:
+
+- Claude variants with a captured session id use
+  `cd <worktree> && claude --resume <session-id>`.
+- Codex variants with a captured session id use
+  `cd <worktree> && codex resume <session-id>`.
+- Variants without a captured session id use
+  `cd <worktree> && <backend-command>` so a human can continue from the isolated
+  worktree even when resume metadata is unavailable.
+
+`cc-fork-matrix open <run-dir>` prints the shell command for each variant, and
+`--variant <name-or-slug>` filters the output. Use `--json` to inspect the full
+structured contract, including `argv`, `cwd`, and launcher-specific commands.
+
+On macOS, Ghostty does not support launching the terminal emulator directly from
+the `ghostty` CLI. The Ghostty launcher therefore uses
+`open -na Ghostty.app --args --working-directory=<worktree> -e <backend-command>`.
+
+Zellij can script tabs and panes, but that would be a run-level group launcher
+rather than a per-variant open command. It is intentionally not part of this
+contract. tmux is not a target launcher.
 
 ## Safety
 
