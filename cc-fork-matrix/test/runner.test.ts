@@ -245,3 +245,67 @@ variants:
     await rm(repo, { recursive: true, force: true });
   }
 });
+
+test("preserves interrupted Codex launches and stops remaining variants", async () => {
+  const repo = await tempRepo();
+  const fakeCodex = join(repo, "fake-codex-interrupted.sh");
+  const calls = join(repo, "codex-interrupted-calls.log");
+  await writeFile(
+    fakeCodex,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "${calls}"
+if [ "$1" = "fork" ] && [ "$2" = "--help" ]; then
+  printf 'Usage: codex fork [OPTIONS] [SESSION_ID] [PROMPT]\\n  -C, --cd <DIR>\\n'
+  exit 0
+fi
+if [ "$1" = "fork" ]; then
+  kill -TERM $$
+fi
+exit 64
+`,
+  );
+  await chmod(fakeCodex, 0o755);
+  await runCommand("git", ["add", "fake-codex-interrupted.sh"], repo);
+  await runCommand("git", ["commit", "-m", "add interrupted fake codex"], repo);
+
+  try {
+    const parsed = parseMatrixText(
+      `
+version: 1
+name: codex-interrupted-run
+repo: ${repo}
+source:
+  backend: codex-cli
+  session: explicit-codex-session
+run:
+  stateRoot: .state
+backend:
+  codex:
+    command: ${fakeCodex}
+variants:
+  - name: option-a
+    worktree: ${repo}-codex-interrupted-option-a
+    prompt: do interrupted codex
+  - name: option-b
+    worktree: ${repo}-codex-interrupted-option-b
+    prompt: do not launch after interrupt
+`,
+      "yaml",
+    );
+    const resolved = await resolveRun(
+      parsed.matrix,
+      parsed.hash,
+      { command: "run", runId: "fake-codex-interrupted" },
+      "run",
+    );
+    const metadata = await runMatrix(resolved, parsed.hash);
+    assert.equal(metadata.variants.length, 1);
+    assert.equal(metadata.variants[0].status, "interrupted");
+    assert.equal(metadata.variants[0].backendSignal, "SIGTERM");
+
+    const callLog = await readFile(calls, "utf8");
+    assert.equal(callLog.match(/^fork explicit-codex-session /gm)?.length, 1);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});

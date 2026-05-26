@@ -90,7 +90,11 @@ async function runVariant(args: {
   let verification: VariantResult["verification"] = [];
   let verificationLog = "";
   let status: VariantResult["status"] =
-    backendResult.status === "success" ? "succeeded" : "fork_failed";
+    backendResult.status === "success"
+      ? "succeeded"
+      : backendResult.status === "interrupted"
+        ? "interrupted"
+        : "fork_failed";
   if (backendResult.status === "success" && variant.verificationCommands.length > 0) {
     const verificationResult = await runVerification(variant);
     verification = verificationResult.results;
@@ -166,7 +170,10 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
           metadataPath,
           matrixHash,
         });
-        if (resolved.failFast && result.status !== "succeeded") {
+        if (
+          result.status === "interrupted" ||
+          (resolved.failFast && result.status !== "succeeded")
+        ) {
           shouldStop = true;
         }
       } catch (error) {
