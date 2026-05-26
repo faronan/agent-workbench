@@ -1,0 +1,6 @@
+prefix_rule(
+    pattern=["pnpm", "--dir", "cc-fork-matrix", "check"],
+    decision="allow",
+    justification="cc-fork-matrix の品質確認",
+    match=["pnpm --dir cc-fork-matrix check"],
+)
