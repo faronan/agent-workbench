@@ -157,10 +157,7 @@ variants:
 
     const callLog = await readFile(calls, "utf8");
     assert.match(callLog, /^fork --help$/m);
-    assert.match(
-      callLog,
-      /^fork 22222222-2222-2222-2222-222222222222 [\s\S]* -C .*option-a$/m,
-    );
+    assert.match(callLog, /^fork 22222222-2222-2222-2222-222222222222 [\s\S]* -C .*option-a$/m);
     assert.doesNotMatch(JSON.stringify(metadata), /do codex a/);
     assert.doesNotMatch(await readFile(join(resolved.runDir, "report.md"), "utf8"), /do codex a/);
   } finally {

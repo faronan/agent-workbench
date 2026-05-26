@@ -6,6 +6,18 @@ function tableRow(cells: string[]): string {
   return `| ${cells.map((cell) => cell.replace(/\n/g, "<br>")).join(" | ")} |`;
 }
 
+function sessionText(variant: VariantResult): string {
+  if (variant.sessionId) {
+    return variant.sessionId;
+  }
+  if (variant.sessionIdAvailability === "unavailable") {
+    return variant.sessionIdUnavailableReason
+      ? `unavailable (${variant.sessionIdUnavailableReason})`
+      : "unavailable";
+  }
+  return "unavailable";
+}
+
 function variantSummary(variant: VariantResult): string {
   return [
     `# ${variant.name}`,
@@ -13,7 +25,7 @@ function variantSummary(variant: VariantResult): string {
     `- Status: ${variant.status}`,
     `- Branch: ${variant.branch}`,
     `- Worktree: ${variant.worktree}`,
-    variant.sessionId ? `- Session: ${variant.sessionId}` : "- Session: unavailable",
+    `- Session: ${sessionText(variant)}`,
     variant.resumeCommand ? `- Resume: \`${variant.resumeCommand}\`` : "",
     "",
     "## Verification",
@@ -67,7 +79,7 @@ export function renderReport(metadata: RunMetadata): string {
         variant.name,
         variant.status,
         variant.branch,
-        variant.sessionId ?? "",
+        sessionText(variant),
         verification,
         String(variant.changedFiles.length),
         variant.resumeCommand ? `\`${variant.resumeCommand}\`` : "",

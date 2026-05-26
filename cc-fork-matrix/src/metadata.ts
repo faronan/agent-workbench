@@ -8,8 +8,10 @@ export function initialMetadata(args: {
   repoRoot: string;
   baseRef: string;
   baseHead: string;
-  backend: string;
+  backend: RunMetadata["source"]["backend"];
   sourceSession: string;
+  sourceResolvedFrom: RunMetadata["source"]["resolvedFrom"];
+  sourceEnv?: RunMetadata["source"]["env"];
   matrixHash: string;
   dirtyBase: boolean;
   dirtyBaseStatus: string;
@@ -26,8 +28,10 @@ export function initialMetadata(args: {
     baseRef: args.baseRef,
     baseHead: args.baseHead,
     source: {
-      backend: args.backend as RunMetadata["source"]["backend"],
+      backend: args.backend,
       session: args.sourceSession,
+      resolvedFrom: args.sourceResolvedFrom,
+      env: args.sourceEnv,
     },
     matrixHash: args.matrixHash,
     dirtyBase: args.dirtyBase,
