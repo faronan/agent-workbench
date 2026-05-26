@@ -24,6 +24,26 @@ export const MATRIX_SCHEMA = {
         failFast: { type: "boolean" },
       },
     },
+    backend: {
+      type: "object",
+      properties: {
+        claude: {
+          type: "object",
+          properties: {
+            command: { type: "string" },
+            mode: { enum: ["print", "background"] },
+            permissionMode: { type: "string" },
+            maxTurns: { type: "integer", minimum: 1 },
+          },
+        },
+        codex: {
+          type: "object",
+          properties: {
+            command: { type: "string" },
+          },
+        },
+      },
+    },
     variants: {
       type: "array",
       minItems: 1,

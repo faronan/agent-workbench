@@ -1,6 +1,6 @@
 # cc-fork-matrix
 
-`cc-fork-matrix` fans out a Claude Code session into multiple hypothesis sessions,
+`cc-fork-matrix` fans out a Claude Code or Codex session into multiple hypothesis sessions,
 each isolated in its own git worktree and branch. It records verification results,
 diffs, metadata, and a comparison report without copying raw transcripts or prompts.
 
@@ -51,6 +51,42 @@ variants:
     prompt: |
       Explore the zod-based contract approach.
 ```
+
+## Codex Backend
+
+`codex-cli` is an interactive fork launcher. It starts a Codex TUI for each
+variant with the current worktree as the agent root:
+
+```yaml
+version: 1
+name: codex-auth-matrix
+
+source:
+  backend: codex-cli
+  session: current
+
+run:
+  concurrency: 1
+
+backend:
+  codex:
+    command: codex
+
+variants:
+  - name: contract-first
+    prompt: |
+      Explore the contract-first implementation path.
+```
+
+For `source.session: current`, `codex-cli` requires `CODEX_THREAD_ID` and passes it
+as the explicit `SESSION_ID` to `codex fork`. It does not fall back to
+`codex fork --last`; pass `--source <SESSION_ID>` or set `source.session` when
+running outside a Codex-managed session.
+
+Before launching variants, the backend runs `codex fork --help` and verifies that
+the installed CLI exposes `codex fork [SESSION_ID] [PROMPT]` with `-C/--cd`.
+The launched fork session id is not available from the interactive CLI, so reports
+record the session as unavailable and do not emit a Codex resume command.
 
 ## Safety
 
