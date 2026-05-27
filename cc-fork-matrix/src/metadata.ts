@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { assertRunMetadata, invalidMetadata } from "./metadata-contract.ts";
 import type { RunMetadata, VariantResult } from "./types.ts";
 
 export function initialMetadata(args: {
@@ -46,7 +47,17 @@ export async function writeMetadata(path: string, metadata: RunMetadata): Promis
 }
 
 export async function readMetadata(path: string): Promise<RunMetadata> {
-  return JSON.parse(await readFile(path, "utf8")) as RunMetadata;
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      invalidMetadata(`metadata JSON is invalid: ${error.message}`);
+    }
+    throw error;
+  }
+  assertRunMetadata(value);
+  return value;
 }
 
 export function upsertVariant(metadata: RunMetadata, variant: VariantResult): void {

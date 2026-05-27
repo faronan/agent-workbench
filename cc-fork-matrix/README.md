@@ -108,6 +108,10 @@ Each variant metadata file records an `openCommand` object instead of a legacy
 `--variant <name-or-slug>` filters the output. Use `--json` to inspect the full
 structured contract, including `argv`, `cwd`, and launcher-specific commands.
 
+`cc-fork-matrix` is still under active development and does not guarantee
+compatibility with old run artifacts. After a metadata schema change, regenerate
+the run instead of reusing artifacts created by an older version.
+
 On macOS, Ghostty does not support launching the terminal emulator directly from
 the `ghostty` CLI. The Ghostty launcher therefore uses
 `open -na Ghostty.app --args --working-directory=<worktree> -e <backend-command>`.

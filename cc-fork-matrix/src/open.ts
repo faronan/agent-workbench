@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { UserFacingError } from "./errors.ts";
 import {
@@ -8,7 +7,8 @@ import {
   renderGhosttyDryRun,
   renderManualCommands,
 } from "./ghostty.ts";
-import type { GhosttyLayout, RunMetadata, TerminalLauncher, VariantResult } from "./types.ts";
+import { readMetadata } from "./metadata.ts";
+import type { GhosttyLayout, TerminalLauncher, VariantResult } from "./types.ts";
 
 interface OpenOptions {
   json?: boolean;
@@ -63,9 +63,7 @@ export async function printOpenCommand(
   variantName?: string,
   options: OpenOptions = {},
 ): Promise<string> {
-  const metadata = JSON.parse(
-    await readFile(resolve(runDir, "metadata.json"), "utf8"),
-  ) as RunMetadata;
+  const metadata = await readMetadata(resolve(runDir, "metadata.json"));
   const variants = variantName
     ? metadata.variants.filter(
         (variant) => variant.name === variantName || variant.slug === variantName,

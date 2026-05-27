@@ -1,5 +1,6 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { readMetadata } from "./metadata.ts";
 import type { RunMetadata, VariantResult } from "./types.ts";
 
 function tableRow(cells: string[]): string {
@@ -98,9 +99,7 @@ export function renderReport(metadata: RunMetadata): string {
 }
 
 export async function regenerateReport(runDir: string): Promise<string> {
-  const metadata = JSON.parse(
-    await readFile(resolve(runDir, "metadata.json"), "utf8"),
-  ) as RunMetadata;
+  const metadata = await readMetadata(resolve(runDir, "metadata.json"));
   const report = renderReport(metadata);
   await writeFile(resolve(runDir, "report.md"), report);
   return report;
