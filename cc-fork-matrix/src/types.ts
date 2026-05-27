@@ -1,5 +1,7 @@
 export type BackendId = "claude-cli" | "codex-cli" | "claude-agent-sdk";
 export type MatrixFormat = "json" | "yaml" | "toml";
+export type TerminalLauncher = "ghostty";
+export type GhosttyLayout = "tabs" | "splits";
 export type VariantStatus =
   | "pending"
   | "running"
@@ -74,7 +76,8 @@ export interface CliOptions {
   json?: boolean;
   dryRun?: boolean;
   variant?: string;
-  printCommand?: boolean;
+  terminal?: TerminalLauncher;
+  layout?: GhosttyLayout;
 }
 
 export interface ResolvedRun {
@@ -131,6 +134,37 @@ export interface BackendRunResult {
   stderr: string;
 }
 
+export type SessionIdAvailability = "captured" | "unavailable";
+export type OpenCommandKind = "resume-session" | "open-worktree" | "unavailable";
+
+export interface CommandInvocation {
+  cwd: string;
+  argv: string[];
+  shellCommand: string;
+}
+
+export type VariantOpenCommand =
+  | {
+      kind: "resume-session";
+      backend: BackendId;
+      sessionId: string;
+      sessionIdAvailability: "captured";
+      command: CommandInvocation;
+    }
+  | {
+      kind: "open-worktree";
+      backend: BackendId;
+      sessionIdAvailability?: SessionIdAvailability;
+      sessionIdUnavailableReason?: string;
+      command: CommandInvocation;
+    }
+  | {
+      kind: "unavailable";
+      backend: BackendId;
+      sessionIdAvailability: "unavailable";
+      sessionIdUnavailableReason: string;
+    };
+
 export interface VerificationResult {
   name: string;
   command: string;
@@ -151,13 +185,13 @@ export interface VariantResult {
   durationMs?: number;
   backendExitCode?: number | null;
   backendSignal?: NodeJS.Signals | null;
-  sessionIdAvailability?: "captured" | "unavailable";
+  sessionIdAvailability?: SessionIdAvailability;
   sessionIdUnavailableReason?: string;
+  openCommand: VariantOpenCommand;
   verification: VerificationResult[];
   diffstat: string;
   changedFiles: string[];
   artifactDir: string;
-  resumeCommand?: string;
   error?: string;
 }
 

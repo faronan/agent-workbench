@@ -19,7 +19,8 @@ Usage:
   cc-fork-matrix dry-run <matrix.yaml|--stdin>
   cc-fork-matrix report <run-dir>
   cc-fork-matrix status <run-dir>
-  cc-fork-matrix open <run-dir> --variant <name> --print-command
+  cc-fork-matrix open <run-dir> [--variant <name>] [--json]
+  cc-fork-matrix open <run-dir> --terminal ghostty [--layout tabs|splits] [--variant <name>] [--dry-run]
   cc-fork-matrix schema
 
 Options:
@@ -36,6 +37,8 @@ Options:
   --format <yaml|toml|json>
   --json
   --dry-run
+  --terminal <ghostty>
+  --layout <tabs|splits>
 `;
 }
 
@@ -81,6 +84,22 @@ function parseArgs(argv: string[]): CliOptions {
       case "--variant":
         options.variant = next();
         break;
+      case "--terminal": {
+        const terminal = next();
+        if (terminal !== "ghostty") {
+          throw new UserFacingError(`Unknown terminal: ${terminal}`);
+        }
+        options.terminal = terminal;
+        break;
+      }
+      case "--layout": {
+        const layout = next();
+        if (layout !== "tabs" && layout !== "splits") {
+          throw new UserFacingError(`Unknown layout: ${layout}`);
+        }
+        options.layout = layout;
+        break;
+      }
       case "--format":
         options.format = next() as MatrixFormat;
         break;
@@ -102,9 +121,6 @@ function parseArgs(argv: string[]): CliOptions {
       case "--dry-run":
         options.dryRun = true;
         break;
-      case "--print-command":
-        options.printCommand = true;
-        break;
       case "--help":
       case "-h":
         options.command = "help";
@@ -112,6 +128,12 @@ function parseArgs(argv: string[]): CliOptions {
       default:
         throw new UserFacingError(`Unknown option: ${arg}`);
     }
+  }
+  if (options.terminal && options.command !== "open") {
+    throw new UserFacingError("--terminal is only supported by open.");
+  }
+  if (options.layout && options.terminal !== "ghostty") {
+    throw new UserFacingError("--layout requires --terminal ghostty.");
   }
   return options;
 }
@@ -165,7 +187,14 @@ async function main(argv: string[]): Promise<number> {
     if (!options.matrixPath) {
       throw new UserFacingError("open requires <run-dir>.");
     }
-    process.stdout.write(await printOpenCommand(resolve(options.matrixPath), options.variant));
+    process.stdout.write(
+      await printOpenCommand(resolve(options.matrixPath), options.variant, {
+        json: options.json,
+        terminal: options.terminal,
+        layout: options.layout,
+        dryRun: options.dryRun,
+      }),
+    );
     return 0;
   }
   if (options.command !== "run" && options.command !== "dry-run") {

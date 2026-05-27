@@ -71,8 +71,17 @@ variants:
     const metadata = await runMatrix(resolved, parsed.hash);
     assert.equal(metadata.variants[0].status, "succeeded");
     assert.equal(metadata.variants[0].sessionId, "11111111-1111-1111-1111-111111111111");
+    assert.equal(metadata.variants[0].openCommand.kind, "resume-session");
+    assert.equal(metadata.variants[0].openCommand.backend, "claude-cli");
+    assert.deepEqual(metadata.variants[0].openCommand.command.argv, [
+      fakeClaude,
+      "--resume",
+      "11111111-1111-1111-1111-111111111111",
+    ]);
+    assert.equal(metadata.variants[0].openCommand.command.cwd, `${repo}-claude-option-a`);
     assert.deepEqual(metadata.variants[0].changedFiles, ["agent-output.txt"]);
     assert.match(await readFile(join(resolved.runDir, "report.md"), "utf8"), /option-a/);
+    assert.doesNotMatch(JSON.stringify(metadata), /resumeCommand/);
   } finally {
     await rm(repo, { recursive: true, force: true });
   }
@@ -152,13 +161,17 @@ variants:
     assert.equal(metadata.variants[0].sessionId, undefined);
     assert.equal(metadata.variants[0].sessionIdAvailability, "unavailable");
     assert.match(metadata.variants[0].sessionIdUnavailableReason ?? "", /does not expose/i);
-    assert.equal(metadata.variants[0].resumeCommand, undefined);
+    assert.equal(metadata.variants[0].openCommand.kind, "open-worktree");
+    assert.equal(metadata.variants[0].openCommand.backend, "codex-cli");
+    assert.deepEqual(metadata.variants[0].openCommand.command.argv, [fakeCodex]);
+    assert.equal(metadata.variants[0].openCommand.command.cwd, `${repo}-codex-option-a`);
     assert.deepEqual(metadata.variants[0].changedFiles, ["codex-output.txt"]);
 
     const callLog = await readFile(calls, "utf8");
     assert.match(callLog, /^fork --help$/m);
     assert.match(callLog, /^fork 22222222-2222-2222-2222-222222222222 [\s\S]* -C .*option-a$/m);
     assert.doesNotMatch(JSON.stringify(metadata), /do codex a/);
+    assert.doesNotMatch(JSON.stringify(metadata), /resumeCommand/);
     assert.doesNotMatch(await readFile(join(resolved.runDir, "report.md"), "utf8"), /do codex a/);
   } finally {
     if (previous === undefined) {
@@ -234,6 +247,8 @@ variants:
     assert.equal(metadata.source.resolvedFrom, "explicit");
     assert.equal(metadata.source.env, undefined);
     assert.equal(metadata.variants[0].status, "succeeded");
+    assert.equal(metadata.variants[0].openCommand.kind, "open-worktree");
+    assert.deepEqual(metadata.variants[0].openCommand.command.argv, [fakeCodex]);
     assert.deepEqual(metadata.variants[0].changedFiles, ["explicit-output.txt"]);
     assert.match(await readFile(calls, "utf8"), /^fork explicit-codex-session [\s\S]* -C /m);
   } finally {
@@ -302,6 +317,7 @@ variants:
     assert.equal(metadata.variants.length, 1);
     assert.equal(metadata.variants[0].status, "interrupted");
     assert.equal(metadata.variants[0].backendSignal, "SIGTERM");
+    assert.equal(metadata.variants[0].openCommand.kind, "open-worktree");
 
     const callLog = await readFile(calls, "utf8");
     assert.equal(callLog.match(/^fork explicit-codex-session /gm)?.length, 1);
