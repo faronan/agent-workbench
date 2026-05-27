@@ -147,6 +147,40 @@ test("readMetadata rejects variants with invalid open command invocation shape",
   });
 });
 
+test("readMetadata rejects verification results without code", async () => {
+  const metadata = validMetadata() as unknown as Record<string, unknown>;
+  const variants = metadata.variants as Array<Record<string, unknown>>;
+  variants[0].verification = [
+    {
+      name: "test",
+      command: "pnpm test",
+      signal: null,
+      durationMs: 1,
+    },
+  ];
+
+  await withMetadataFile(metadata, async ({ metadataPath }) => {
+    await assert.rejects(() => readMetadata(metadataPath), isInvalidMetadataError);
+  });
+});
+
+test("readMetadata rejects verification results without signal", async () => {
+  const metadata = validMetadata() as unknown as Record<string, unknown>;
+  const variants = metadata.variants as Array<Record<string, unknown>>;
+  variants[0].verification = [
+    {
+      name: "test",
+      command: "pnpm test",
+      code: 0,
+      durationMs: 1,
+    },
+  ];
+
+  await withMetadataFile(metadata, async ({ metadataPath }) => {
+    await assert.rejects(() => readMetadata(metadataPath), isInvalidMetadataError);
+  });
+});
+
 test("open, report, and status reject invalid metadata consistently", async () => {
   await withMetadataFile(legacyResumeCommandMetadata(), async ({ runDir }) => {
     await assert.rejects(() => printOpenCommand(runDir), isInvalidMetadataError);

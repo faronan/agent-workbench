@@ -59,6 +59,30 @@ function requireNumber(object: Record<string, unknown>, key: string, context: st
   return value;
 }
 
+function requireNumberOrNull(
+  object: Record<string, unknown>,
+  key: string,
+  context: string,
+): number | null {
+  const value = object[key];
+  if (typeof value !== "number" && value !== null) {
+    invalidMetadata(`${context}.${key} must be a number or null`);
+  }
+  return value;
+}
+
+function requireStringOrNull(
+  object: Record<string, unknown>,
+  key: string,
+  context: string,
+): string | null {
+  const value = object[key];
+  if (typeof value !== "string" && value !== null) {
+    invalidMetadata(`${context}.${key} must be a string or null`);
+  }
+  return value;
+}
+
 function requireArray(object: Record<string, unknown>, key: string, context: string): unknown[] {
   const value = object[key];
   if (!Array.isArray(value)) {
@@ -100,8 +124,8 @@ function assertOptionalNumberOrNull(
   key: string,
   context: string,
 ): void {
-  if (hasOwn(object, key) && typeof object[key] !== "number" && object[key] !== null) {
-    invalidMetadata(`${context}.${key} must be a number or null`);
+  if (hasOwn(object, key)) {
+    requireNumberOrNull(object, key, context);
   }
 }
 
@@ -131,10 +155,8 @@ function assertVerificationResult(value: unknown, context: string): void {
   const result = requireObject(value, context);
   requireString(result, "name", context);
   requireString(result, "command", context);
-  assertOptionalNumberOrNull(result, "code", context);
-  if (hasOwn(result, "signal") && typeof result.signal !== "string" && result.signal !== null) {
-    invalidMetadata(`${context}.signal must be a string or null`);
-  }
+  requireNumberOrNull(result, "code", context);
+  requireStringOrNull(result, "signal", context);
   requireNumber(result, "durationMs", context);
 }
 
