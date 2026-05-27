@@ -18,6 +18,13 @@ function sessionText(variant: VariantResult): string {
   return "unavailable";
 }
 
+function openText(variant: VariantResult): string {
+  if (variant.openCommand.kind === "unavailable") {
+    return `unavailable (${variant.openCommand.sessionIdUnavailableReason})`;
+  }
+  return variant.openCommand.command.shellCommand;
+}
+
 function variantSummary(variant: VariantResult): string {
   return [
     `# ${variant.name}`,
@@ -26,7 +33,7 @@ function variantSummary(variant: VariantResult): string {
     `- Branch: ${variant.branch}`,
     `- Worktree: ${variant.worktree}`,
     `- Session: ${sessionText(variant)}`,
-    variant.resumeCommand ? `- Resume: \`${variant.resumeCommand}\`` : "",
+    `- Open: \`${openText(variant)}\``,
     "",
     "## Verification",
     "",
@@ -64,7 +71,7 @@ export function renderReport(metadata: RunMetadata): string {
     `- Base: ${metadata.baseRef} @ ${metadata.baseHead}`,
     `- Dirty base: ${metadata.dirtyBase ? "yes" : "no"}`,
     "",
-    tableRow(["Variant", "Status", "Branch", "Session", "Verification", "Changed files", "Resume"]),
+    tableRow(["Variant", "Status", "Branch", "Session", "Verification", "Changed files", "Open"]),
     tableRow(["---", "---", "---", "---", "---", "---", "---"]),
   ];
   for (const variant of metadata.variants) {
@@ -82,7 +89,7 @@ export function renderReport(metadata: RunMetadata): string {
         sessionText(variant),
         verification,
         String(variant.changedFiles.length),
-        variant.resumeCommand ? `\`${variant.resumeCommand}\`` : "",
+        `\`${openText(variant)}\``,
       ]),
     );
   }

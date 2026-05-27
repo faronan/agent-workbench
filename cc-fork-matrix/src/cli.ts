@@ -19,7 +19,7 @@ Usage:
   cc-fork-matrix dry-run <matrix.yaml|--stdin>
   cc-fork-matrix report <run-dir>
   cc-fork-matrix status <run-dir>
-  cc-fork-matrix open <run-dir> --variant <name> --print-command
+  cc-fork-matrix open <run-dir> [--variant <name>] [--json]
   cc-fork-matrix schema
 
 Options:
@@ -102,9 +102,6 @@ function parseArgs(argv: string[]): CliOptions {
       case "--dry-run":
         options.dryRun = true;
         break;
-      case "--print-command":
-        options.printCommand = true;
-        break;
       case "--help":
       case "-h":
         options.command = "help";
@@ -165,7 +162,9 @@ async function main(argv: string[]): Promise<number> {
     if (!options.matrixPath) {
       throw new UserFacingError("open requires <run-dir>.");
     }
-    process.stdout.write(await printOpenCommand(resolve(options.matrixPath), options.variant));
+    process.stdout.write(
+      await printOpenCommand(resolve(options.matrixPath), options.variant, { json: options.json }),
+    );
     return 0;
   }
   if (options.command !== "run" && options.command !== "dry-run") {
