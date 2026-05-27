@@ -44,6 +44,17 @@ test("builds Codex resume command when session id is captured", () => {
     openCommand.command.shellCommand,
     "cd '/work tree/option-a' && '/bin/codex' 'resume' 'codex-session'",
   );
+  assert.deepEqual(openCommand.launchers.ghostty.argv, [
+    "open",
+    "-na",
+    "Ghostty.app",
+    "--args",
+    "--working-directory=/work tree/option-a",
+    "-e",
+    "/bin/codex",
+    "resume",
+    "codex-session",
+  ]);
 });
 
 test("builds open-worktree command when session id is unknown", () => {

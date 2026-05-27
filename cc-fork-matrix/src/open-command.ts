@@ -20,6 +20,23 @@ function commandInvocation(cwd: string, argv: string[]): CommandInvocation {
   };
 }
 
+function ghosttyInvocation(cwd: string, argv: string[]): CommandInvocation {
+  const ghosttyArgv = [
+    "open",
+    "-na",
+    "Ghostty.app",
+    "--args",
+    `--working-directory=${cwd}`,
+    "-e",
+    ...argv,
+  ];
+  return {
+    cwd,
+    argv: ghosttyArgv,
+    shellCommand: shellJoin(ghosttyArgv),
+  };
+}
+
 function backendCommand(backend: BackendId, matrix: MatrixDefinition): string | undefined {
   if (backend === "claude-cli") {
     return matrix.backend?.claude?.command ?? "claude";
@@ -69,6 +86,10 @@ export function buildVariantOpenCommand(args: {
   }
 
   const invocation = commandInvocation(args.variant.worktree, argv);
+  const launchers = {
+    ghostty: ghosttyInvocation(args.variant.worktree, argv),
+  };
+
   if (args.sessionId) {
     return {
       kind: "resume-session",
@@ -76,6 +97,7 @@ export function buildVariantOpenCommand(args: {
       sessionId: args.sessionId,
       sessionIdAvailability: "captured",
       command: invocation,
+      launchers,
     };
   }
 
@@ -85,5 +107,6 @@ export function buildVariantOpenCommand(args: {
     sessionIdAvailability: args.sessionIdAvailability,
     sessionIdUnavailableReason: args.sessionIdUnavailableReason,
     command: invocation,
+    launchers,
   };
 }

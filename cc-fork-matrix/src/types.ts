@@ -150,6 +150,9 @@ export type VariantOpenCommand =
       sessionId: string;
       sessionIdAvailability: "captured";
       command: CommandInvocation;
+      launchers: {
+        ghostty: CommandInvocation;
+      };
     }
   | {
       kind: "open-worktree";
@@ -157,6 +160,9 @@ export type VariantOpenCommand =
       sessionIdAvailability?: SessionIdAvailability;
       sessionIdUnavailableReason?: string;
       command: CommandInvocation;
+      launchers: {
+        ghostty: CommandInvocation;
+      };
     }
   | {
       kind: "unavailable";

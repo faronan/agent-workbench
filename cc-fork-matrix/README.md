@@ -93,8 +93,8 @@ record the session as unavailable and emit a worktree-open command such as
 
 ## Open Command Contract
 
-Each variant metadata file records an `openCommand` object. The command is
-backend-aware and safe to show in reports:
+Each variant metadata file records an `openCommand` object instead of a legacy
+`resumeCommand` string. The command is backend-aware and safe to show in reports:
 
 - Claude variants with a captured session id use
   `cd <worktree> && claude --resume <session-id>`.
@@ -106,19 +106,27 @@ backend-aware and safe to show in reports:
 
 `cc-fork-matrix open <run-dir>` prints the shell command for each variant, and
 `--variant <name-or-slug>` filters the output. Use `--json` to inspect the full
-structured contract, including `argv` and `cwd`.
+structured contract, including `argv`, `cwd`, and launcher-specific commands.
 
-On macOS, `cc-fork-matrix open <run-dir> --terminal ghostty --layout tabs|splits`
-opens the selected variants in Ghostty using AppleScript. `tabs` creates one new
-window with a tab per variant. `splits` creates one new window and adds variants
-as right/down alternating split panes. The launcher opens the default shell in
-each worktree, enters the same manual open command shown by `cc-fork-matrix open`,
-and presses enter. Use `--dry-run` to print the generated AppleScript and manual
+On macOS, Ghostty does not support launching the terminal emulator directly from
+the `ghostty` CLI. The Ghostty launcher therefore uses
+`open -na Ghostty.app --args --working-directory=<worktree> -e <backend-command>`.
+
+`cc-fork-matrix open <run-dir> --terminal ghostty --layout tabs|splits` opens the
+selected variants in Ghostty using AppleScript. `tabs` creates one new window
+with a tab per variant. `splits` creates one new window and adds variants as
+right/down alternating split panes. The launcher opens the default shell in each
+worktree, enters the same manual open command shown by `cc-fork-matrix open`, and
+presses enter. Use `--dry-run` to print the generated AppleScript and manual
 commands without launching Ghostty.
 
 If Ghostty is not installed, `osascript` is unavailable, or macOS Automation
 permissions block AppleScript, the command exits non-zero and prints the manual
 commands to run yourself.
+
+Zellij can script tabs and panes, but that would be a run-level group launcher
+rather than a per-variant open command. It is intentionally not part of this
+contract. tmux is not a target launcher.
 
 ## Safety
 

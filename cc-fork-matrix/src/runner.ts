@@ -90,6 +90,8 @@ async function runVariant(args: {
   const diff = await collectDiff(variant);
   await writeFile(variant.diffPatchPath, diff.patch);
   await writeFile(variant.verificationLogPath, verificationLog);
+  const sessionIdAvailability =
+    backendResult.sessionIdAvailability ?? (backendResult.sessionId ? "captured" : undefined);
   const result: VariantResult = {
     name: variant.name,
     slug: variant.slug,
@@ -102,16 +104,14 @@ async function runVariant(args: {
     durationMs: Date.now() - started,
     backendExitCode: backendResult.exitCode,
     backendSignal: backendResult.signal,
-    sessionIdAvailability:
-      backendResult.sessionIdAvailability ?? (backendResult.sessionId ? "captured" : undefined),
+    sessionIdAvailability,
     sessionIdUnavailableReason: backendResult.sessionIdUnavailableReason,
     openCommand: buildVariantOpenCommand({
       backend: run.backend,
       matrix: run.matrix,
       variant,
       sessionId: backendResult.sessionId,
-      sessionIdAvailability:
-        backendResult.sessionIdAvailability ?? (backendResult.sessionId ? "captured" : undefined),
+      sessionIdAvailability,
       sessionIdUnavailableReason: backendResult.sessionIdUnavailableReason,
     }),
     verification,

@@ -40,6 +40,24 @@ function metadata(): RunMetadata {
             argv: ["claude", "--resume", "sid-a"],
             shellCommand: "cd /worktree/a && claude --resume sid-a",
           },
+          launchers: {
+            ghostty: {
+              cwd: "/worktree/a",
+              argv: [
+                "open",
+                "-na",
+                "Ghostty.app",
+                "--args",
+                "--working-directory=/worktree/a",
+                "-e",
+                "claude",
+                "--resume",
+                "sid-a",
+              ],
+              shellCommand:
+                "open -na Ghostty.app --args --working-directory=/worktree/a -e claude --resume sid-a",
+            },
+          },
         },
         verification: [],
         diffstat: "",
@@ -64,11 +82,43 @@ function metadata(): RunMetadata {
             argv: ["codex"],
             shellCommand: "cd /worktree/b && codex",
           },
+          launchers: {
+            ghostty: {
+              cwd: "/worktree/b",
+              argv: [
+                "open",
+                "-na",
+                "Ghostty.app",
+                "--args",
+                "--working-directory=/worktree/b",
+                "-e",
+                "codex",
+              ],
+              shellCommand: "open -na Ghostty.app --args --working-directory=/worktree/b -e codex",
+            },
+          },
         },
         verification: [],
         diffstat: "",
         changedFiles: [],
         artifactDir: "/artifact/b",
+      },
+      {
+        name: "Unavailable C",
+        slug: "unavailable-c",
+        status: "fork_failed",
+        branch: "branch-c",
+        worktree: "/worktree/c",
+        openCommand: {
+          kind: "unavailable",
+          backend: "claude-agent-sdk",
+          sessionIdAvailability: "unavailable",
+          sessionIdUnavailableReason: "Worktree was not created.",
+        },
+        verification: [],
+        diffstat: "",
+        changedFiles: [],
+        artifactDir: "/artifact/c",
       },
     ],
   };
@@ -88,7 +138,12 @@ test("prints shell open commands for all variants", async () => {
   await withRunDir(async (runDir) => {
     assert.equal(
       await printOpenCommand(runDir),
-      "cd /worktree/a && claude --resume sid-a\ncd /worktree/b && codex\n",
+      [
+        "cd /worktree/a && claude --resume sid-a",
+        "cd /worktree/b && codex",
+        "# Unavailable C: Worktree was not created.",
+        "",
+      ].join("\n"),
     );
   });
 });
@@ -99,12 +154,13 @@ test("prints shell open command for selected variant", async () => {
   });
 });
 
-test("prints structured open command json", async () => {
+test("prints structured open command json with launcher metadata", async () => {
   await withRunDir(async (runDir) => {
     const payload = JSON.parse(await printOpenCommand(runDir, "codex-b", { json: true }));
     assert.equal(payload[0].name, "Codex B");
     assert.equal(payload[0].openCommand.kind, "open-worktree");
     assert.deepEqual(payload[0].openCommand.command.argv, ["codex"]);
+    assert.match(payload[0].openCommand.launchers.ghostty.shellCommand, /Ghostty\.app/);
   });
 });
 
@@ -123,12 +179,47 @@ test("prints Ghostty dry-run output for selected variant", async () => {
   });
 });
 
+test("rejects Ghostty launch when selected variants include unavailable commands", async () => {
+  await withRunDir(async (runDir) => {
+    await assert.rejects(
+      () => printOpenCommand(runDir, undefined, { terminal: "ghostty", dryRun: true }),
+      (error) =>
+        error instanceof UserFacingError &&
+        /Cannot open all selected variants in Ghostty/.test(error.message) &&
+        /Unavailable C/.test(error.message) &&
+        /Manual commands/.test(error.message),
+    );
+  });
+});
+
 test("rejects json with Ghostty terminal mode", async () => {
   await withRunDir(async (runDir) => {
     await assert.rejects(
       () => printOpenCommand(runDir, "codex-b", { terminal: "ghostty", json: true }),
       (error) =>
         error instanceof UserFacingError && /--json cannot be combined/.test(error.message),
+    );
+  });
+});
+
+test("rejects layout without Ghostty terminal mode", async () => {
+  await withRunDir(async (runDir) => {
+    await assert.rejects(
+      () => printOpenCommand(runDir, "codex-b", { layout: "tabs" }),
+      (error) =>
+        error instanceof UserFacingError &&
+        /--layout requires --terminal ghostty/.test(error.message),
+    );
+  });
+});
+
+test("rejects dry-run without Ghostty terminal mode", async () => {
+  await withRunDir(async (runDir) => {
+    await assert.rejects(
+      () => printOpenCommand(runDir, "codex-b", { dryRun: true }),
+      (error) =>
+        error instanceof UserFacingError &&
+        /open --dry-run requires --terminal ghostty/.test(error.message),
     );
   });
 });
