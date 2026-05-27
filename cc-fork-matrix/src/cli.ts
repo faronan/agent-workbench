@@ -1,5 +1,4 @@
 #!/usr/bin/env -S node --experimental-strip-types
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { UserFacingError } from "./errors.ts";
 import { parseMatrixText, readMatrixFile } from "./matrix.ts";
@@ -8,6 +7,7 @@ import { regenerateReport } from "./report.ts";
 import { resolveRun } from "./resolve.ts";
 import { dryRunJson, renderDryRun, runMatrix } from "./runner.ts";
 import { MATRIX_SCHEMA } from "./schema.ts";
+import { printStatus } from "./status.ts";
 import type { CliOptions, MatrixFormat } from "./types.ts";
 
 function help(): string {
@@ -179,8 +179,7 @@ async function main(argv: string[]): Promise<number> {
     if (!options.matrixPath) {
       throw new UserFacingError("status requires <run-dir>.");
     }
-    const metadata = await readFile(resolve(options.matrixPath, "metadata.json"), "utf8");
-    process.stdout.write(metadata);
+    process.stdout.write(await printStatus(resolve(options.matrixPath)));
     return 0;
   }
   if (options.command === "open") {
