@@ -1,5 +1,7 @@
 export type BackendId = "claude-cli" | "codex-cli" | "claude-agent-sdk";
 export type MatrixFormat = "json" | "yaml" | "toml";
+export type TerminalLauncher = "ghostty";
+export type GhosttyLayout = "tabs" | "splits";
 export type VariantStatus =
   | "pending"
   | "running"
@@ -74,6 +76,8 @@ export interface CliOptions {
   json?: boolean;
   dryRun?: boolean;
   variant?: string;
+  terminal?: TerminalLauncher;
+  layout?: GhosttyLayout;
 }
 
 export interface ResolvedRun {

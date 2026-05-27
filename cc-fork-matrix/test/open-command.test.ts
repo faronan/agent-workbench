@@ -9,7 +9,7 @@ const variant: ResolvedVariant = {
   prompt: "do not serialize me",
   promptSha256: "hash",
   branch: "branch",
-  worktree: "/worktree",
+  worktree: "/work tree/option-a",
   artifactDir: "/artifacts",
   summaryPath: "/artifacts/summary.md",
   diffPatchPath: "/artifacts/diff.patch",
@@ -40,12 +40,16 @@ test("builds Codex resume command when session id is captured", () => {
   assert.equal(openCommand.kind, "resume-session");
   assert.equal(openCommand.backend, "codex-cli");
   assert.deepEqual(openCommand.command.argv, ["/bin/codex", "resume", "codex-session"]);
+  assert.equal(
+    openCommand.command.shellCommand,
+    "cd '/work tree/option-a' && '/bin/codex' 'resume' 'codex-session'",
+  );
   assert.deepEqual(openCommand.launchers.ghostty.argv, [
     "open",
     "-na",
     "Ghostty.app",
     "--args",
-    "--working-directory=/worktree",
+    "--working-directory=/work tree/option-a",
     "-e",
     "/bin/codex",
     "resume",

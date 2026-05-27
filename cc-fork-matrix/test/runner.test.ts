@@ -97,6 +97,7 @@ variants:
     assert.doesNotMatch(JSON.stringify(metadata), /resumeCommand/);
     assert.deepEqual(metadata.variants[0].changedFiles, ["agent-output.txt"]);
     assert.match(await readFile(join(resolved.runDir, "report.md"), "utf8"), /option-a/);
+    assert.doesNotMatch(JSON.stringify(metadata), /resumeCommand/);
   } finally {
     await rm(repo, { recursive: true, force: true });
   }
@@ -254,6 +255,7 @@ variants:
     assert.match(callLog, /^fork --help$/m);
     assert.match(callLog, /^fork 22222222-2222-2222-2222-222222222222 [\s\S]* -C .*option-a$/m);
     assert.doesNotMatch(JSON.stringify(metadata), /do codex a/);
+    assert.doesNotMatch(JSON.stringify(metadata), /resumeCommand/);
     assert.doesNotMatch(await readFile(join(resolved.runDir, "report.md"), "utf8"), /do codex a/);
   } finally {
     if (previous === undefined) {
@@ -399,6 +401,7 @@ variants:
     assert.equal(metadata.variants.length, 1);
     assert.equal(metadata.variants[0].status, "interrupted");
     assert.equal(metadata.variants[0].backendSignal, "SIGTERM");
+    assert.equal(metadata.variants[0].openCommand.kind, "open-worktree");
 
     const callLog = await readFile(calls, "utf8");
     assert.equal(callLog.match(/^fork explicit-codex-session /gm)?.length, 1);

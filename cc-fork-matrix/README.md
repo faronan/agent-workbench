@@ -12,6 +12,7 @@ cc-fork-matrix run matrix.yaml
 cc-fork-matrix report ../.cc-fork-matrix/my-run/runs/20260526T200000
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract --json
+cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --terminal ghostty --layout tabs --dry-run
 ```
 
 From Claude Code, use the bundled skill template in
@@ -110,6 +111,18 @@ structured contract, including `argv`, `cwd`, and launcher-specific commands.
 On macOS, Ghostty does not support launching the terminal emulator directly from
 the `ghostty` CLI. The Ghostty launcher therefore uses
 `open -na Ghostty.app --args --working-directory=<worktree> -e <backend-command>`.
+
+`cc-fork-matrix open <run-dir> --terminal ghostty --layout tabs|splits` opens the
+selected variants in Ghostty using AppleScript. `tabs` creates one new window
+with a tab per variant. `splits` creates one new window and adds variants as
+right/down alternating split panes. The launcher opens the default shell in each
+worktree, enters the same manual open command shown by `cc-fork-matrix open`, and
+presses enter. Use `--dry-run` to print the generated AppleScript and manual
+commands without launching Ghostty.
+
+If Ghostty is not installed, `osascript` is unavailable, or macOS Automation
+permissions block AppleScript, the command exits non-zero and prints the manual
+commands to run yourself.
 
 Zellij can script tabs and panes, but that would be a run-level group launcher
 rather than a per-variant open command. It is intentionally not part of this
