@@ -19,7 +19,7 @@ Usage:
   cc-fork-matrix dry-run <matrix.yaml|--stdin>
   cc-fork-matrix report <run-dir>
   cc-fork-matrix status <run-dir>
-  cc-fork-matrix open <run-dir> --variant <name> [--json]
+  cc-fork-matrix open <run-dir> [--variant <name>] [--json]
   cc-fork-matrix schema
 
 Options:

@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createBackend } from "./backend.ts";
-import { changedFiles, createWorktree, diffPatch, diffStat } from "./git.ts";
+import { changedFiles, createWorktree, diffPatch, diffStat, pathExists } from "./git.ts";
 import { initialMetadata, upsertVariant, writeMetadata } from "./metadata.ts";
 import { buildVariantOpenCommand } from "./open-command.ts";
 import { redact } from "./redaction.ts";
@@ -127,6 +127,25 @@ async function runVariant(args: {
   return result;
 }
 
+function openCommandForForkFailure(
+  resolved: ResolvedRun,
+  variant: ResolvedVariant,
+): VariantResult["openCommand"] {
+  if (!pathExists(variant.worktree)) {
+    return {
+      kind: "unavailable",
+      backend: resolved.backend,
+      sessionIdAvailability: "unavailable",
+      sessionIdUnavailableReason: "Worktree was not created; cannot build an open command.",
+    };
+  }
+  return buildVariantOpenCommand({
+    backend: resolved.backend,
+    matrix: resolved.matrix,
+    variant,
+  });
+}
+
 export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Promise<RunMetadata> {
   const backend = createBackend(resolved.backend, resolved.matrix);
   await backend.checkAvailability();
@@ -175,11 +194,7 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
           status: "fork_failed",
           branch: variant.branch,
           worktree: variant.worktree,
-          openCommand: buildVariantOpenCommand({
-            backend: resolved.backend,
-            matrix: resolved.matrix,
-            variant,
-          }),
+          openCommand: openCommandForForkFailure(resolved, variant),
           verification: [],
           diffstat: "",
           changedFiles: [],

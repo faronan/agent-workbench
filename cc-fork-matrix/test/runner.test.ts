@@ -102,6 +102,69 @@ variants:
   }
 });
 
+test("does not emit an open command when worktree creation fails", async () => {
+  const repo = await tempRepo();
+  const fakeClaude = join(repo, "fake-claude-version.sh");
+  const worktree = `${repo}-missing-base-option-a`;
+  await writeFile(
+    fakeClaude,
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "fake claude 0.0.0"
+  exit 0
+fi
+exit 64
+`,
+  );
+  await chmod(fakeClaude, 0o755);
+  await runCommand("git", ["add", "fake-claude-version.sh"], repo);
+  await runCommand("git", ["commit", "-m", "add fake claude version"], repo);
+
+  try {
+    const parsed = parseMatrixText(
+      `
+version: 1
+name: missing-base-run
+repo: ${repo}
+baseRef: missing-base-ref
+source:
+  backend: claude-cli
+  session: explicit-session
+run:
+  stateRoot: .state
+backend:
+  claude:
+    command: ${fakeClaude}
+variants:
+  - name: option-a
+    worktree: ${worktree}
+    prompt: do a
+`,
+      "yaml",
+    );
+    const resolved = await resolveRun(
+      parsed.matrix,
+      parsed.hash,
+      { command: "run", runId: "missing-base" },
+      "run",
+    );
+    const metadata = await runMatrix(resolved, parsed.hash);
+    const variant = metadata.variants[0];
+    assert.equal(variant.status, "fork_failed");
+    assert.equal(variant.openCommand.kind, "unavailable");
+    assert.match(variant.openCommand.sessionIdUnavailableReason, /worktree was not created/i);
+    assert.doesNotMatch(JSON.stringify(variant.openCommand), /cd .*&&/);
+
+    const report = await readFile(join(resolved.runDir, "report.md"), "utf8");
+    const summary = await readFile(resolved.variants[0].summaryPath, "utf8");
+    assert.doesNotMatch(report, /cd .*&&/);
+    assert.doesNotMatch(summary, /cd .*&&/);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+    await rm(worktree, { recursive: true, force: true });
+  }
+});
+
 test("runs matrix with a fake Codex CLI from CODEX_THREAD_ID", async () => {
   const repo = await tempRepo();
   const fakeCodex = join(repo, "fake-codex.sh");
