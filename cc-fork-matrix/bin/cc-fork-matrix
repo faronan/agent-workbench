@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+set -eu
+
+repo_name="github.com/faronan/agent-workbench"
+
+if ! command -v ghq >/dev/null 2>&1; then
+  printf '%s\n' "cc-fork-matrix: ghq is required to resolve ${repo_name}." >&2
+  exit 127
+fi
+
+repo_paths="$(ghq list -p "$repo_name" 2>/dev/null || true)"
+repo="$(printf '%s\n' "$repo_paths" | sed -n '1p')"
+
+if [ -z "$repo" ]; then
+  printf '%s\n' "cc-fork-matrix: repository not found via ghq: ${repo_name}" >&2
+  exit 127
+fi
+
+cli="${repo}/cc-fork-matrix/dist/cli.js"
+
+if [ ! -f "$cli" ]; then
+  printf '%s\n' "cc-fork-matrix: built CLI not found: ${cli}" >&2
+  printf '%s\n' "Run: pnpm --dir ${repo}/cc-fork-matrix build" >&2
+  exit 126
+fi
+
+exec node "$cli" "$@"
