@@ -83,6 +83,7 @@ test("uses Ghostty command configuration for sensitive launch commands", () => {
 
   assert.match(script, /set command of cfg1 to "\/bin\/bash -lc/);
   assert.match(script, /set environment variables of cfg1 to \{/);
+  assert.match(script, /PATH=/);
   assert.match(script, /CC_FORK_MATRIX_ARGC=5/);
   assert.match(script, /CC_FORK_MATRIX_ARG_B64_0=Y2xhdWRl/);
   assert.doesNotMatch(script, /input text/);

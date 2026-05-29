@@ -78,6 +78,7 @@ function applescriptStringList(values: string[]): string {
 
 function commandEnvironment(command: CommandInvocation): string[] {
   return [
+    `PATH=${process.env.PATH ?? ""}`,
     `CC_FORK_MATRIX_ARGC=${command.argv.length}`,
     ...command.argv.map(
       (arg, index) =>
