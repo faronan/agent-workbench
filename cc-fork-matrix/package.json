@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "bin": {
-    "cc-fork-matrix": "./src/cli.ts"
+    "cc-fork-matrix": "./dist/cli.js"
   },
   "scripts": {
-    "build": "node --experimental-strip-types src/cli.ts --help >/dev/null && node --experimental-strip-types scripts/typecheck.mjs",
+    "build": "node scripts/build.mjs",
     "check": "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
     "lint": "biome check .",
     "test": "node --experimental-strip-types --test \"test/**/*.test.ts\"",
@@ -16,5 +16,8 @@
   "engines": {
     "node": ">=24.0.0",
     "pnpm": ">=11.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
   }
 }

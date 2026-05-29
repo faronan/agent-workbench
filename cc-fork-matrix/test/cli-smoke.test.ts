@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import test from "node:test";
+import test, { before } from "node:test";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "../src/shell.ts";
 import type { RunMetadata } from "../src/types.ts";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const cliPath = join(packageRoot, "src", "cli.ts");
+const cliPath = join(packageRoot, "dist", "cli.js");
 const INVALID_METADATA_MESSAGE = "legacy/invalid metadata; rerun cc-fork-matrix";
 
 interface CliResult {
@@ -88,9 +88,17 @@ function legacyResumeCommandMetadata(): unknown {
   return metadata;
 }
 
+before(() => {
+  const result = spawnSync(process.execPath, ["scripts/build.mjs"], {
+    cwd: packageRoot,
+    encoding: "utf8",
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
 async function runCli(args: string[], input?: string): Promise<CliResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--experimental-strip-types", cliPath, ...args], {
+    const child = spawn(process.execPath, [cliPath, ...args], {
       cwd: packageRoot,
       stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
@@ -111,6 +119,27 @@ async function runCli(args: string[], input?: string): Promise<CliResult> {
     }
   });
 }
+
+test("built CLI help works without Node type stripping", async () => {
+  const result = await runCli(["--help"]);
+
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "");
+  assert.match(result.stdout, /cc-fork-matrix/);
+  assert.match(result.stdout, /Usage:/);
+});
+
+test("package bin points to the built CLI", async () => {
+  const packageJson = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8"));
+
+  assert.equal(packageJson.bin["cc-fork-matrix"], "./dist/cli.js");
+});
+
+test("built CLI has a stable Node shebang", async () => {
+  const cliText = await readFile(cliPath, "utf8");
+
+  assert.equal(cliText.split("\n")[0], "#!/usr/bin/env node");
+});
 
 async function withRunDir(
   metadata: unknown,

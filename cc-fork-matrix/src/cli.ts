@@ -1,4 +1,3 @@
-#!/usr/bin/env -S node --experimental-strip-types
 import { resolve } from "node:path";
 import { cleanupRun, renderCleanupResult } from "./cleanup.ts";
 import { UserFacingError } from "./errors.ts";
