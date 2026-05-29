@@ -4,7 +4,8 @@ description: Create and launch a cc-fork-matrix experiment from the current Clau
 argument-hint: '"variant request or path to matrix"'
 disable-model-invocation: true
 allowed-tools:
-  - Bash(node --experimental-strip-types *)
+  - Bash(cc-fork-matrix *)
+  - Bash(/Users/toshiki.ito/.local/bin/cc-fork-matrix *)
   - Read
   - Write
 ---
@@ -16,14 +17,22 @@ separate sessions or invokes `cc-fork-matrix`.
 
 ## Command
 
-Use this repository-local command for every example below:
+Use the local wrapper command for every example below:
 
 ```bash
-node --experimental-strip-types /Users/toshiki.ito/ghq/github.com/faronan/agent-workbench/cc-fork-matrix/src/cli.ts
+cc-fork-matrix
 ```
 
-Refer to it as `<CC_FORK_MATRIX_CMD>` in workflow steps. If this tool is later
-packaged as `cc-fork-matrix`, replace only this command block.
+Refer to it as `<CC_FORK_MATRIX_CMD>` in workflow steps. If the shell PATH does
+not include `~/.local/bin`, use this fallback command block:
+
+```bash
+$HOME/.local/bin/cc-fork-matrix
+```
+
+Do not use the TypeScript source path as the normal command surface. If the
+wrapper reports that `dist/cli.js` is missing, run
+`pnpm --dir <repo>/cc-fork-matrix build` outside the matrix workflow first.
 
 ## Workflow
 
