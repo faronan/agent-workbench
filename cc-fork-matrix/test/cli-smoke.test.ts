@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runCommand } from "../src/shell.ts";
 import type { RunMetadata } from "../src/types.ts";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -70,6 +71,7 @@ function validMetadata(): RunMetadata {
           },
         },
         verification: [],
+        verificationCommands: [],
         diffstat: "",
         changedFiles: [],
         artifactDir: "/artifact/a",
@@ -86,11 +88,11 @@ function legacyResumeCommandMetadata(): unknown {
   return metadata;
 }
 
-async function runCli(args: string[]): Promise<CliResult> {
+async function runCli(args: string[], input?: string): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--experimental-strip-types", cliPath, ...args], {
       cwd: packageRoot,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -104,6 +106,9 @@ async function runCli(args: string[]): Promise<CliResult> {
         stderr: Buffer.concat(stderr).toString("utf8"),
       });
     });
+    if (input !== undefined) {
+      child.stdin.end(input);
+    }
   });
 }
 
@@ -117,6 +122,65 @@ async function withRunDir(
     await fn({ runDir });
   } finally {
     await rm(runDir, { recursive: true, force: true });
+  }
+}
+
+async function tempRepo() {
+  const dir = await mkdtemp(join(tmpdir(), "ccfm-cli-launch-"));
+  await runCommand("git", ["init"], dir);
+  await runCommand("git", ["config", "user.email", "test@example.com"], dir);
+  await runCommand("git", ["config", "user.name", "Test"], dir);
+  await writeFile(join(dir, "README.md"), "hello\n");
+  await runCommand("git", ["add", "README.md"], dir);
+  await runCommand("git", ["commit", "-m", "init"], dir);
+  return dir;
+}
+
+async function withDiscoverableRun(
+  metadata: RunMetadata,
+  fn: (args: { root: string; repo: string; runDir: string }) => Promise<void>,
+): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), "ccfm-cli-discovery-"));
+  const repo = join(root, "repo");
+  const runDir = join(root, ".cc-fork-matrix", "demo", "runs", metadata.runId);
+  try {
+    await mkdir(repo, { recursive: true });
+    await runCommand("git", ["init"], repo);
+    await writeFile(join(repo, "README.md"), "hello\n");
+    await runCommand("git", ["add", "README.md"], repo);
+    await runCommand(
+      "git",
+      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"],
+      repo,
+    );
+    const repoMetadata = structuredClone({ ...metadata, repoRoot: repo });
+    repoMetadata.variants = repoMetadata.variants.map((variant) => ({
+      ...variant,
+      artifactDir: join(runDir, variant.slug),
+    }));
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "metadata.json"), `${JSON.stringify(repoMetadata, null, 2)}\n`);
+    await writeFile(
+      join(root, ".cc-fork-matrix", "latest.json"),
+      `${JSON.stringify({ schemaVersion: 1, runDir }, null, 2)}\n`,
+    );
+    await fn({ root, repo, runDir });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+async function withMatrixFile(
+  text: string,
+  fn: (args: { matrixPath: string }) => Promise<void>,
+): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "ccfm-cli-matrix-"));
+  try {
+    const matrixPath = join(dir, "matrix.yaml");
+    await writeFile(matrixPath, text);
+    await fn({ matrixPath });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
 
@@ -144,4 +208,305 @@ test("status prints valid metadata through the CLI", async () => {
     const metadata = JSON.parse(result.stdout) as RunMetadata;
     assert.equal(metadata.variants[0].openCommand.kind, "resume-session");
   });
+});
+
+test("cleanup dry-run prints structured metadata-scoped results", async () => {
+  await withRunDir(validMetadata(), async ({ runDir }) => {
+    const result = await runCli(["cleanup", runDir, "--dry-run", "--json"]);
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.runDir, runDir);
+    assert.equal(payload.dryRun, true);
+    assert.equal(payload.variants[0].name, "A");
+    assert.equal(payload.variants[0].status, "missing");
+  });
+});
+
+test("list prints discoverable runs as json", async () => {
+  await withDiscoverableRun(validMetadata(), async ({ repo, runDir }) => {
+    const result = await runCli(["list", "--json", "--repo", repo]);
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.runs[0].runDir, await realpath(runDir));
+    assert.equal(payload.runs[0].name, "demo");
+    assert.equal(payload.runs[0].statusCounts.succeeded, 1);
+  });
+});
+
+test("status, report, cleanup, and finalize resolve --last through the latest pointer", async () => {
+  const metadata = validMetadata();
+  metadata.variants[0].status = "running";
+  metadata.variants[0].sessionId = undefined;
+  metadata.variants[0].sessionIdAvailability = "unavailable";
+  metadata.variants[0].sessionIdUnavailableReason = "test";
+  metadata.variants[0].openCommand = {
+    kind: "open-worktree",
+    backend: "claude-cli",
+    sessionIdAvailability: "unavailable",
+    sessionIdUnavailableReason: "test",
+    command: {
+      cwd: "/missing",
+      argv: ["claude"],
+      shellCommand: "cd /missing && claude",
+    },
+    launchers: {
+      ghostty: {
+        cwd: "/missing",
+        argv: [
+          "open",
+          "-na",
+          "Ghostty.app",
+          "--args",
+          "--working-directory=/missing",
+          "-e",
+          "claude",
+        ],
+        shellCommand: "open -na Ghostty.app --args --working-directory=/missing -e claude",
+      },
+    },
+  };
+  metadata.variants[0].worktree = "/missing";
+
+  await withDiscoverableRun(metadata, async ({ repo }) => {
+    const status = await runCli(["status", "--last", "--json", "--repo", repo]);
+    assert.equal(status.code, 0);
+    assert.equal(JSON.parse(status.stdout).runId, "run");
+
+    const finalized = await runCli(["finalize", "--last", "--json", "--repo", repo]);
+    assert.equal(finalized.code, 0);
+    assert.equal(JSON.parse(finalized.stdout).variants[0].status, "skipped");
+
+    const report = await runCli(["report", "--last", "--repo", repo]);
+    assert.equal(report.code, 0);
+    assert.match(report.stdout, /skipped/);
+
+    const cleanup = await runCli(["cleanup", "--last", "--dry-run", "--json", "--repo", repo]);
+    assert.equal(cleanup.code, 0);
+    assert.equal(JSON.parse(cleanup.stdout).variants[0].status, "missing");
+  });
+});
+
+test("run launch dry-run prints Ghostty launch targets without prompt text", async () => {
+  const repo = await tempRepo();
+  try {
+    await withMatrixFile(
+      `
+version: 1
+name: cli-codex-launch
+repo: ${repo}
+source:
+  backend: codex-cli
+  session: source-session
+variants:
+  - name: option-a
+    prompt: hidden cli prompt
+`,
+      async ({ matrixPath }) => {
+        const result = await runCli([
+          "run",
+          matrixPath,
+          "--launch",
+          "--terminal",
+          "ghostty",
+          "--dry-run",
+        ]);
+
+        assert.equal(result.code, 0);
+        assert.equal(result.stderr, "");
+        assert.match(result.stdout, /Launch target: ghostty tabs/);
+        assert.match(result.stdout, /promptSha256:/);
+        assert.doesNotMatch(result.stdout, /hidden cli prompt/);
+        assert.doesNotMatch(result.stdout, /codex fork/);
+      },
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("run launch dry-run prints Zellij launch targets as json", async () => {
+  const repo = await tempRepo();
+  try {
+    await withMatrixFile(
+      `
+version: 1
+name: cli-codex-launch-json
+repo: ${repo}
+source:
+  backend: codex-cli
+  session: source-session
+variants:
+  - name: option-a
+    prompt: hidden zellij prompt
+`,
+      async ({ matrixPath }) => {
+        const result = await runCli([
+          "run",
+          matrixPath,
+          "--launch",
+          "--terminal",
+          "zellij",
+          "--dry-run",
+          "--json",
+        ]);
+
+        assert.equal(result.code, 0);
+        assert.equal(result.stderr, "");
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.launch, true);
+        assert.equal(payload.terminal, "zellij");
+        assert.equal(payload.layout, "tabs");
+        assert.equal(payload.variants[0].launchTarget.terminal, "zellij");
+        assert.equal(payload.variants[0].launchTarget.layout, "tabs");
+        assert.equal(typeof payload.variants[0].promptSha256, "string");
+        assert.doesNotMatch(result.stdout, /hidden zellij prompt/);
+        assert.doesNotMatch(result.stdout, /codex fork/);
+      },
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("run launch dry-run accepts Claude backend without prompt text", async () => {
+  const repo = await tempRepo();
+  try {
+    await withMatrixFile(
+      `
+version: 1
+name: cli-claude-launch
+repo: ${repo}
+source:
+  backend: claude-cli
+  session: source-session
+verification:
+  commands:
+    - name: test
+      command: pnpm test
+variants:
+  - name: option-a
+    prompt: hidden claude prompt
+`,
+      async ({ matrixPath }) => {
+        const result = await runCli([
+          "run",
+          matrixPath,
+          "--launch",
+          "--terminal",
+          "ghostty",
+          "--dry-run",
+        ]);
+
+        assert.equal(result.code, 0);
+        assert.equal(result.stderr, "");
+        assert.match(result.stdout, /Source: claude-cli source-session/);
+        assert.match(result.stdout, /Launch target: ghostty tabs/);
+        assert.match(result.stdout, /promptSha256:/);
+        assert.match(result.stdout, /verification: test/);
+        assert.doesNotMatch(result.stdout, /hidden claude prompt/);
+        assert.doesNotMatch(result.stdout, /claude --resume/);
+      },
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("launch dry-run reads ephemeral matrix from stdin", async () => {
+  const repo = await tempRepo();
+  try {
+    const result = await runCli(
+      [
+        "dry-run",
+        "--stdin",
+        "--format",
+        "yaml",
+        "--source",
+        "source-session",
+        "--launch",
+        "--terminal",
+        "ghostty",
+      ],
+      `
+version: 1
+name: stdin-claude-launch
+repo: ${repo}
+source:
+  backend: claude-cli
+variants:
+  - name: option-a
+    prompt: hidden stdin prompt
+`,
+    );
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    assert.match(result.stdout, /Source: claude-cli source-session/);
+    assert.match(result.stdout, /Launch target: ghostty tabs/);
+    assert.doesNotMatch(result.stdout, /hidden stdin prompt/);
+    assert.doesNotMatch(result.stdout, /claude --resume/);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("run launch requires a terminal", async () => {
+  const result = await runCli(["run", "matrix.yaml", "--launch"]);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /requires --terminal/);
+});
+
+test("run launch dry-run rejects unsupported backend", async () => {
+  const repo = await tempRepo();
+  try {
+    await withMatrixFile(
+      `
+version: 1
+name: cli-unsupported-launch
+repo: ${repo}
+source:
+  backend: claude-agent-sdk
+  session: source-session
+variants:
+  - name: option-a
+    prompt: do a
+`,
+      async ({ matrixPath }) => {
+        const result = await runCli([
+          "run",
+          matrixPath,
+          "--launch",
+          "--terminal",
+          "ghostty",
+          "--dry-run",
+        ]);
+
+        assert.equal(result.code, 1);
+        assert.match(result.stderr, /claude-cli or codex-cli/);
+      },
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("run launch rejects Zellij split layout", async () => {
+  const result = await runCli([
+    "run",
+    "matrix.yaml",
+    "--launch",
+    "--terminal",
+    "zellij",
+    "--layout",
+    "splits",
+    "--dry-run",
+  ]);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /zellij launch mode only supports the tabs layout/i);
 });

@@ -46,6 +46,9 @@ export async function resolveRun(
   }
 
   const backend = options.backend ?? matrix.source?.backend ?? "claude-cli";
+  if (options.launch && backend === "claude-agent-sdk") {
+    throw new UserFacingError("run --launch is only supported with claude-cli or codex-cli.");
+  }
   const sourceRaw = options.source ?? matrix.source?.session ?? "current";
   let sourceSession: string;
   let sourceResolvedFrom: ResolvedRun["sourceResolvedFrom"];
@@ -57,7 +60,11 @@ export async function resolveRun(
       sourceEnv = "CODEX_THREAD_ID";
       if (!sourceSession) {
         throw new UserFacingError(
-          "source is current for codex-cli, but CODEX_THREAD_ID is not set. Pass --source <session-id>.",
+          [
+            "source is current for backend codex-cli, but CODEX_THREAD_ID is not set.",
+            "Run inside a Codex-managed session or pass an explicit source with --source <session-id>.",
+            "Required env for current Codex source: CODEX_THREAD_ID.",
+          ].join("\n"),
         );
       }
     } else {
@@ -66,7 +73,11 @@ export async function resolveRun(
       sourceEnv = "CLAUDE_CODE_SESSION_ID";
       if (!sourceSession) {
         throw new UserFacingError(
-          "source is current, but CLAUDE_CODE_SESSION_ID is not set. Pass --source <session-id-or-name>.",
+          [
+            "source is current for backend claude-cli, but CLAUDE_CODE_SESSION_ID is not set.",
+            "Run inside a Claude Code session or pass an explicit source with --source <session-id-or-name>.",
+            "Required env for current Claude Code source: CLAUDE_CODE_SESSION_ID.",
+          ].join("\n"),
         );
       }
     }
@@ -82,7 +93,7 @@ export async function resolveRun(
   );
   const runDir = resolve(stateRoot, "runs", runId);
   const concurrency = options.concurrency ?? matrix.run?.concurrency ?? 1;
-  if (backend === "codex-cli" && concurrency > 1) {
+  if (backend === "codex-cli" && concurrency > 1 && !options.launch) {
     throw new UserFacingError(
       "codex-cli backend launches interactive fork sessions and requires concurrency: 1.",
     );

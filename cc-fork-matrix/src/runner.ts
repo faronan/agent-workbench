@@ -1,54 +1,40 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createBackend } from "./backend.ts";
-import { changedFiles, createWorktree, diffPatch, diffStat, pathExists } from "./git.ts";
+import { UserFacingError } from "./errors.ts";
+import { createWorktree, pathExists } from "./git.ts";
+import {
+  buildAgentLaunchTarget,
+  type LaunchMatrixOptions,
+  launchAgentTargets,
+  launcherStrategy,
+  normalizedLaunchLayout,
+} from "./launch.ts";
 import { initialMetadata, upsertVariant, writeMetadata } from "./metadata.ts";
 import { buildVariantOpenCommand } from "./open-command.ts";
 import { redact } from "./redaction.ts";
 import { renderReport, writeVariantSummary } from "./report.ts";
-import { runCommand } from "./shell.ts";
-import type { ResolvedRun, ResolvedVariant, RunMetadata, VariantResult } from "./types.ts";
+import { writeLatestPointers } from "./run-discovery.ts";
+import type {
+  AgentLaunchTarget,
+  ResolvedRun,
+  ResolvedVariant,
+  RunMetadata,
+  VariantResult,
+} from "./types.ts";
+import { collectDiff, runVerification } from "./variant-artifacts.ts";
 
 const TOOL_VERSION = "0.1.0";
+export const CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON =
+  "Codex CLI launch mode does not expose launched fork session ids.";
+export const CLAUDE_LAUNCH_SESSION_UNAVAILABLE_REASON =
+  "Claude CLI terminal launch mode does not expose launched fork session ids.";
 
-async function runVerification(variant: ResolvedVariant): Promise<{
-  log: string;
-  results: VariantResult["verification"];
-}> {
-  const logParts: string[] = [];
-  const results: VariantResult["verification"] = [];
-  for (const command of variant.verificationCommands) {
-    const started = Date.now();
-    logParts.push(`$ ${command.command}\n`);
-    const result = await runCommand("sh", ["-lc", command.command], variant.worktree, {
-      timeoutMs: command.timeoutMs,
-    });
-    const durationMs = Date.now() - started;
-    logParts.push(result.stdout);
-    logParts.push(result.stderr);
-    logParts.push(`\n[exit=${result.code} durationMs=${durationMs}]\n\n`);
-    results.push({
-      name: command.name,
-      command: command.command,
-      code: result.code,
-      signal: result.signal,
-      durationMs,
-    });
+function launchSessionUnavailableReason(resolved: ResolvedRun): string {
+  if (resolved.backend === "claude-cli") {
+    return CLAUDE_LAUNCH_SESSION_UNAVAILABLE_REASON;
   }
-  return { log: redact(logParts.join("")), results };
-}
-
-async function collectDiff(variant: ResolvedVariant): Promise<{
-  diffstat: string;
-  changedFiles: string[];
-  patch: string;
-}> {
-  const [stat, files, patch] = await Promise.all([
-    diffStat(variant.worktree),
-    changedFiles(variant.worktree),
-    diffPatch(variant.worktree),
-  ]);
-  return { diffstat: stat, changedFiles: files, patch };
+  return CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON;
 }
 
 async function runVariant(args: {
@@ -80,14 +66,17 @@ async function runVariant(args: {
         ? "interrupted"
         : "fork_failed";
   if (backendResult.status === "success" && variant.verificationCommands.length > 0) {
-    const verificationResult = await runVerification(variant);
+    const verificationResult = await runVerification({
+      worktree: variant.worktree,
+      commands: variant.verificationCommands,
+    });
     verification = verificationResult.results;
     verificationLog = verificationResult.log;
     if (verification.some((entry) => entry.code !== 0)) {
       status = "verification_failed";
     }
   }
-  const diff = await collectDiff(variant);
+  const diff = await collectDiff(variant.worktree);
   await writeFile(variant.diffPatchPath, diff.patch);
   await writeFile(variant.verificationLogPath, verificationLog);
   const sessionIdAvailability =
@@ -115,6 +104,7 @@ async function runVariant(args: {
       sessionIdUnavailableReason: backendResult.sessionIdUnavailableReason,
     }),
     verification,
+    verificationCommands: variant.verificationCommands,
     diffstat: diff.diffstat,
     changedFiles: diff.changedFiles,
     artifactDir: variant.artifactDir,
@@ -125,6 +115,19 @@ async function runVariant(args: {
   upsertVariant(args.metadata, result);
   await writeMetadata(args.metadataPath, args.metadata);
   return result;
+}
+
+async function writeVariantResult(
+  variant: ResolvedVariant,
+  metadata: RunMetadata,
+  metadataPath: string,
+  result: VariantResult,
+): Promise<void> {
+  await mkdir(variant.artifactDir, { recursive: true });
+  await writeFile(variant.metadataPath, `${JSON.stringify(result, null, 2)}\n`);
+  await writeVariantSummary(variant.summaryPath, result);
+  upsertVariant(metadata, result);
+  await writeMetadata(metadataPath, metadata);
 }
 
 function openCommandForForkFailure(
@@ -146,11 +149,8 @@ function openCommandForForkFailure(
   });
 }
 
-export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Promise<RunMetadata> {
-  const backend = createBackend(resolved.backend, resolved.matrix);
-  await backend.checkAvailability();
-  const metadataPath = resolve(resolved.runDir, "metadata.json");
-  const metadata = initialMetadata({
+function initialRunMetadata(resolved: ResolvedRun, matrixHash: string): RunMetadata {
+  return initialMetadata({
     toolVersion: TOOL_VERSION,
     runId: resolved.runId,
     name: resolved.matrix.name,
@@ -165,7 +165,48 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
     dirtyBase: resolved.dirtyBase,
     dirtyBaseStatus: resolved.dirtyBaseStatus,
   });
+}
+
+function terminalLaunchRunningResult(
+  resolved: ResolvedRun,
+  variant: ResolvedVariant,
+): VariantResult {
+  const sessionIdUnavailableReason = launchSessionUnavailableReason(resolved);
+  return {
+    name: variant.name,
+    slug: variant.slug,
+    status: "running",
+    branch: variant.branch,
+    worktree: variant.worktree,
+    sessionIdAvailability: "unavailable",
+    sessionIdUnavailableReason,
+    openCommand: buildVariantOpenCommand({
+      backend: resolved.backend,
+      matrix: resolved.matrix,
+      variant,
+      sessionIdAvailability: "unavailable",
+      sessionIdUnavailableReason,
+    }),
+    verification: [],
+    verificationCommands: variant.verificationCommands,
+    diffstat: "",
+    changedFiles: [],
+    artifactDir: variant.artifactDir,
+  };
+}
+
+export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Promise<RunMetadata> {
+  const backend = createBackend(resolved.backend, resolved.matrix);
+  await backend.checkAvailability();
+  const metadataPath = resolve(resolved.runDir, "metadata.json");
+  const metadata = initialRunMetadata(resolved, matrixHash);
   await writeMetadata(metadataPath, metadata);
+  await writeLatestPointers({
+    repoRoot: resolved.repoRoot,
+    stateRoot: resolved.stateRoot,
+    runDir: resolved.runDir,
+    metadata,
+  });
 
   let nextIndex = 0;
   let shouldStop = false;
@@ -196,6 +237,7 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
           worktree: variant.worktree,
           openCommand: openCommandForForkFailure(resolved, variant),
           verification: [],
+          verificationCommands: variant.verificationCommands,
           diffstat: "",
           changedFiles: [],
           artifactDir: variant.artifactDir,
@@ -216,6 +258,119 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
   await Promise.all(
     Array.from({ length: Math.max(1, resolved.concurrency) }, async () => worker()),
   );
+  await writeFile(resolve(resolved.runDir, "report.md"), renderReport(metadata));
+  return metadata;
+}
+
+export async function launchMatrix(
+  resolved: ResolvedRun,
+  matrixHash: string,
+  options: LaunchMatrixOptions,
+): Promise<RunMetadata> {
+  if (resolved.backend !== "codex-cli" && resolved.backend !== "claude-cli") {
+    throw new UserFacingError("run --launch is only supported with claude-cli or codex-cli.");
+  }
+  const backend = createBackend(resolved.backend, resolved.matrix);
+  await backend.checkAvailability();
+  const metadataPath = resolve(resolved.runDir, "metadata.json");
+  const metadata = initialRunMetadata(resolved, matrixHash);
+  await writeMetadata(metadataPath, metadata);
+  await writeLatestPointers({
+    repoRoot: resolved.repoRoot,
+    stateRoot: resolved.stateRoot,
+    runDir: resolved.runDir,
+    metadata,
+  });
+
+  const launchedVariants: ResolvedVariant[] = [];
+  const targets: AgentLaunchTarget[] = [];
+  for (const variant of resolved.variants) {
+    try {
+      await mkdir(variant.artifactDir, { recursive: true });
+      await createWorktree(resolved.repoRoot, variant.branch, variant.worktree, resolved.baseRef);
+      launchedVariants.push(variant);
+      targets.push(
+        buildAgentLaunchTarget({
+          backend: resolved.backend,
+          matrix: resolved.matrix,
+          sourceSession: resolved.sourceSession,
+          runId: resolved.runId,
+          variant,
+        }),
+      );
+    } catch (error) {
+      const result: VariantResult = {
+        name: variant.name,
+        slug: variant.slug,
+        status: "fork_failed",
+        branch: variant.branch,
+        worktree: variant.worktree,
+        openCommand: openCommandForForkFailure(resolved, variant),
+        verification: [],
+        verificationCommands: variant.verificationCommands,
+        diffstat: "",
+        changedFiles: [],
+        artifactDir: variant.artifactDir,
+        error: redact((error as Error).message),
+      };
+      await writeVariantResult(variant, metadata, metadataPath, result);
+      if (resolved.failFast) {
+        break;
+      }
+    }
+  }
+
+  if (targets.length > 0) {
+    try {
+      await launchAgentTargets(targets, options);
+    } catch (error) {
+      for (const variant of launchedVariants) {
+        const result: VariantResult = {
+          name: variant.name,
+          slug: variant.slug,
+          status: "fork_failed",
+          branch: variant.branch,
+          worktree: variant.worktree,
+          openCommand: openCommandForForkFailure(resolved, variant),
+          verification: [],
+          verificationCommands: variant.verificationCommands,
+          diffstat: "",
+          changedFiles: [],
+          artifactDir: variant.artifactDir,
+          error: redact((error as Error).message),
+        };
+        await writeVariantResult(variant, metadata, metadataPath, result);
+      }
+      await writeFile(resolve(resolved.runDir, "report.md"), renderReport(metadata));
+      throw error;
+    }
+
+    metadata.launch = {
+      mode: "terminal",
+      terminal: options.terminal,
+      layout: normalizedLaunchLayout(options.terminal, options.layout),
+      launchedAt: new Date().toISOString(),
+      launcherStrategy: launcherStrategy(options.terminal),
+      promptStoragePolicy: "not-persisted",
+    };
+    await writeMetadata(metadataPath, metadata);
+    await writeLatestPointers({
+      repoRoot: resolved.repoRoot,
+      stateRoot: resolved.stateRoot,
+      runDir: resolved.runDir,
+      metadata,
+    });
+
+    for (const variant of launchedVariants) {
+      await writeVariantResult(
+        variant,
+        metadata,
+        metadataPath,
+        terminalLaunchRunningResult(resolved, variant),
+      );
+    }
+  }
+
   await writeFile(resolve(resolved.runDir, "report.md"), renderReport(metadata));
   return metadata;
 }

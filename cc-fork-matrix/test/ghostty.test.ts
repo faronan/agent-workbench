@@ -4,6 +4,7 @@ import {
   buildGhosttyAppleScript,
   type GhosttyOpenTarget,
   renderGhosttyDryRun,
+  renderManualCommands,
 } from "../src/ghostty.ts";
 
 const trickyTargets: GhosttyOpenTarget[] = [
@@ -37,6 +38,19 @@ const trickyTargets: GhosttyOpenTarget[] = [
   },
 ];
 
+const sensitiveTarget: GhosttyOpenTarget = {
+  name: "Secret Prompt",
+  slug: "secret-prompt",
+  command: {
+    cwd: "/tmp/sensitive",
+    argv: ["claude", "--resume", "source", "--fork-session", "secret variant prompt"],
+    shellCommand:
+      "cd /tmp/sensitive && claude --resume source --fork-session 'secret variant prompt'",
+    containsSensitiveArgs: true,
+    displayShellCommand: "omitted because the launch command contains the variant prompt",
+  },
+};
+
 test("builds Ghostty tab AppleScript with escaped strings", () => {
   const script = buildGhosttyAppleScript(trickyTargets.slice(0, 2), "tabs");
 
@@ -62,6 +76,29 @@ test("builds Ghostty split AppleScript with alternating directions", () => {
     script,
     /input text "cd '\/tmp\/plain-c' && 'claude' '--resume' 'session-c'" to term3/,
   );
+});
+
+test("uses Ghostty command configuration for sensitive launch commands", () => {
+  const script = buildGhosttyAppleScript([sensitiveTarget], "tabs");
+
+  assert.match(script, /set command of cfg1 to "\/bin\/bash -lc/);
+  assert.match(script, /set environment variables of cfg1 to \{/);
+  assert.match(script, /PATH=/);
+  assert.match(script, /CC_FORK_MATRIX_ARGC=5/);
+  assert.match(script, /CC_FORK_MATRIX_ARG_B64_0=Y2xhdWRl/);
+  assert.doesNotMatch(script, /input text/);
+  assert.doesNotMatch(script, /send key "enter"/);
+  assert.doesNotMatch(script, /secret variant prompt/);
+  assert.doesNotMatch(script, /claude --resume source/);
+});
+
+test("renders sanitized manual commands for sensitive launch commands", () => {
+  const output = renderManualCommands([sensitiveTarget]);
+
+  assert.match(output, /Secret Prompt/);
+  assert.match(output, /omitted because the launch command contains the variant prompt/);
+  assert.doesNotMatch(output, /secret variant prompt/);
+  assert.doesNotMatch(output, /claude --resume source/);
 });
 
 test("renders Ghostty dry-run output with manual commands and AppleScript", () => {

@@ -15,6 +15,9 @@ const VARIANT_STATUSES = [
 ];
 const OPEN_COMMAND_KINDS = ["resume-session", "open-worktree", "unavailable"];
 const SESSION_ID_AVAILABILITIES = ["captured", "unavailable"];
+const TERMINAL_LAUNCHERS = ["ghostty", "zellij"];
+const LAUNCH_LAYOUTS = ["tabs", "splits"];
+const LAUNCHER_STRATEGIES = ["ghostty-command-env", "zellij-new-tab-argv"];
 
 export function invalidMetadata(message: string): never {
   throw new UserFacingError(`${INVALID_METADATA_PREFIX}: ${message}`);
@@ -89,6 +92,15 @@ function requireArray(object: Record<string, unknown>, key: string, context: str
     invalidMetadata(`${context}.${key} must be an array`);
   }
   return value;
+}
+
+function assertVerificationCommand(value: unknown, context: string): void {
+  const command = requireObject(value, context);
+  requireString(command, "name", context);
+  requireString(command, "command", context);
+  if (hasOwn(command, "timeoutMs")) {
+    requireNumber(command, "timeoutMs", context);
+  }
 }
 
 function requireStringArray(object: Record<string, unknown>, key: string, context: string): void {
@@ -234,10 +246,31 @@ function assertVariantResult(value: unknown, context: string): void {
   for (const [index, entry] of verification.entries()) {
     assertVerificationResult(entry, `${context}.verification[${index}]`);
   }
+  const verificationCommands = requireArray(variant, "verificationCommands", context);
+  for (const [index, entry] of verificationCommands.entries()) {
+    assertVerificationCommand(entry, `${context}.verificationCommands[${index}]`);
+  }
   requireString(variant, "diffstat", context);
   requireStringArray(variant, "changedFiles", context);
   requireString(variant, "artifactDir", context);
+  assertOptionalString(variant, "finalizedAt", context);
   assertOptionalString(variant, "error", context);
+}
+
+function assertLaunchMetadata(value: unknown, context: string): void {
+  const launch = requireObject(value, context);
+  const mode = requireOneOf(launch, "mode", ["terminal"], context);
+  if (mode !== "terminal") {
+    invalidMetadata(`${context}.mode must be terminal`);
+  }
+  requireOneOf(launch, "terminal", TERMINAL_LAUNCHERS, context);
+  requireOneOf(launch, "layout", LAUNCH_LAYOUTS, context);
+  requireString(launch, "launchedAt", context);
+  requireOneOf(launch, "launcherStrategy", LAUNCHER_STRATEGIES, context);
+  const promptStoragePolicy = requireString(launch, "promptStoragePolicy", context);
+  if (promptStoragePolicy !== "not-persisted") {
+    invalidMetadata(`${context}.promptStoragePolicy must be not-persisted`);
+  }
 }
 
 export function assertRunMetadata(value: unknown): asserts value is RunMetadata {
@@ -265,6 +298,9 @@ export function assertRunMetadata(value: unknown): asserts value is RunMetadata 
   requireString(metadata, "matrixHash", "metadata");
   requireBoolean(metadata, "dirtyBase", "metadata");
   requireString(metadata, "dirtyBaseStatus", "metadata");
+  if (hasOwn(metadata, "launch")) {
+    assertLaunchMetadata(metadata.launch, "metadata.launch");
+  }
   const variants = requireArray(metadata, "variants", "metadata");
   for (const [index, variant] of variants.entries()) {
     assertVariantResult(variant, `metadata.variants[${index}]`);

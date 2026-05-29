@@ -1,11 +1,15 @@
 #!/usr/bin/env -S node --experimental-strip-types
 import { resolve } from "node:path";
+import { cleanupRun, renderCleanupResult } from "./cleanup.ts";
 import { UserFacingError } from "./errors.ts";
+import { finalizeRun } from "./finalize.ts";
+import { launchDryRunJson, renderLaunchDryRun } from "./launch.ts";
 import { parseMatrixText, readMatrixFile } from "./matrix.ts";
 import { printOpenCommand } from "./open.ts";
 import { regenerateReport } from "./report.ts";
 import { resolveRun } from "./resolve.ts";
-import { dryRunJson, renderDryRun, runMatrix } from "./runner.ts";
+import { listRuns, resolveRunDirFromCli } from "./run-discovery.ts";
+import { dryRunJson, launchMatrix, renderDryRun, runMatrix } from "./runner.ts";
 import { MATRIX_SCHEMA } from "./schema.ts";
 import { printStatus } from "./status.ts";
 import type { CliOptions, MatrixFormat } from "./types.ts";
@@ -15,12 +19,19 @@ function help(): string {
 
 Usage:
   cc-fork-matrix run <matrix.yaml>
+  cc-fork-matrix run <matrix.yaml> --launch --terminal ghostty|zellij [--layout tabs|splits] [--dry-run]
   cc-fork-matrix run --stdin --format yaml
   cc-fork-matrix dry-run <matrix.yaml|--stdin>
   cc-fork-matrix report <run-dir>
+  cc-fork-matrix report --last
   cc-fork-matrix status <run-dir>
+  cc-fork-matrix status --last [--json]
+  cc-fork-matrix list --json
+  cc-fork-matrix finalize <run-dir> [--json]
+  cc-fork-matrix finalize --last [--json]
   cc-fork-matrix open <run-dir> [--variant <name>] [--json]
   cc-fork-matrix open <run-dir> --terminal ghostty [--layout tabs|splits] [--variant <name>] [--dry-run]
+  cc-fork-matrix cleanup <run-dir|--last> [--variant <name>] [--except <name>] [--dry-run] [--force] [--delete-branches] [--delete-run-dir] [--json]
   cc-fork-matrix schema
 
 Options:
@@ -33,11 +44,18 @@ Options:
   --allow-dirty-base
   --fail-fast
   --no-verify
+  --force
+  --last
+  --variant <name>
+  --except <name>
+  --delete-branches
+  --delete-run-dir
   --stdin
   --format <yaml|toml|json>
   --json
   --dry-run
-  --terminal <ghostty>
+  --launch
+  --terminal <ghostty|zellij>
   --layout <tabs|splits>
 `;
 }
@@ -84,9 +102,12 @@ function parseArgs(argv: string[]): CliOptions {
       case "--variant":
         options.variant = next();
         break;
+      case "--except":
+        options.exceptVariant = next();
+        break;
       case "--terminal": {
         const terminal = next();
-        if (terminal !== "ghostty") {
+        if (terminal !== "ghostty" && terminal !== "zellij") {
           throw new UserFacingError(`Unknown terminal: ${terminal}`);
         }
         options.terminal = terminal;
@@ -112,6 +133,18 @@ function parseArgs(argv: string[]): CliOptions {
       case "--no-verify":
         options.noVerify = true;
         break;
+      case "--force":
+        options.force = true;
+        break;
+      case "--last":
+        options.last = true;
+        break;
+      case "--delete-branches":
+        options.deleteBranches = true;
+        break;
+      case "--delete-run-dir":
+        options.deleteRunDir = true;
+        break;
       case "--stdin":
         options.stdin = true;
         break;
@@ -121,6 +154,9 @@ function parseArgs(argv: string[]): CliOptions {
       case "--dry-run":
         options.dryRun = true;
         break;
+      case "--launch":
+        options.launch = true;
+        break;
       case "--help":
       case "-h":
         options.command = "help";
@@ -129,11 +165,30 @@ function parseArgs(argv: string[]): CliOptions {
         throw new UserFacingError(`Unknown option: ${arg}`);
     }
   }
-  if (options.terminal && options.command !== "open") {
-    throw new UserFacingError("--terminal is only supported by open.");
+  const isRunCommand = options.command === "run" || options.command === "dry-run";
+  if (options.launch && !isRunCommand) {
+    throw new UserFacingError("--launch is only supported by run and dry-run.");
   }
-  if (options.layout && options.terminal !== "ghostty") {
+  if (options.terminal && options.command === "open" && options.terminal !== "ghostty") {
+    throw new UserFacingError("open --terminal only supports ghostty.");
+  }
+  if (options.terminal && options.command !== "open" && !(isRunCommand && options.launch)) {
+    throw new UserFacingError("--terminal is only supported by open or run --launch.");
+  }
+  if (options.launch && isRunCommand && !options.terminal) {
+    throw new UserFacingError("run --launch requires --terminal ghostty|zellij.");
+  }
+  if (options.layout && !options.terminal) {
+    throw new UserFacingError("--layout requires --terminal ghostty|zellij.");
+  }
+  if (options.layout && options.terminal === "zellij" && options.layout !== "tabs") {
+    throw new UserFacingError("zellij launch mode only supports the tabs layout.");
+  }
+  if (options.layout && options.command === "open" && options.terminal !== "ghostty") {
     throw new UserFacingError("--layout requires --terminal ghostty.");
+  }
+  if (options.last && options.matrixPath) {
+    throw new UserFacingError("--last cannot be combined with an explicit run directory.");
   }
   return options;
 }
@@ -167,19 +222,36 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(`${JSON.stringify(MATRIX_SCHEMA, null, 2)}\n`);
     return 0;
   }
-  if (options.command === "report") {
-    if (!options.matrixPath) {
-      throw new UserFacingError("report requires <run-dir>.");
+  if (options.command === "list") {
+    const runs = await listRuns({ repo: options.repo, stateRoot: options.stateRoot });
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify({ runs }, null, 2)}\n`);
+    } else {
+      process.stdout.write(
+        `${runs.map((run) => `${run.updatedAt} ${run.name} ${run.runDir}`).join("\n")}\n`,
+      );
     }
-    const report = await regenerateReport(resolve(options.matrixPath));
+    return 0;
+  }
+  if (options.command === "report") {
+    const runDir = await resolveRunDirFromCli(options);
+    const report = await regenerateReport(runDir);
     process.stdout.write(report);
     return 0;
   }
   if (options.command === "status") {
-    if (!options.matrixPath) {
-      throw new UserFacingError("status requires <run-dir>.");
-    }
-    process.stdout.write(await printStatus(resolve(options.matrixPath)));
+    const runDir = await resolveRunDirFromCli(options);
+    process.stdout.write(await printStatus(runDir));
+    return 0;
+  }
+  if (options.command === "finalize") {
+    const runDir = await resolveRunDirFromCli(options);
+    const result = await finalizeRun(runDir);
+    process.stdout.write(
+      options.json
+        ? `${JSON.stringify(result, null, 2)}\n`
+        : `Finalize complete: ${result.runDir}\n`,
+    );
     return 0;
   }
   if (options.command === "open") {
@@ -196,12 +268,49 @@ async function main(argv: string[]): Promise<number> {
     );
     return 0;
   }
+  if (options.command === "cleanup") {
+    const runDir = await resolveRunDirFromCli(options);
+    const result = await cleanupRun(runDir, {
+      dryRun: options.dryRun,
+      force: options.force,
+      variant: options.variant,
+      exceptVariant: options.exceptVariant,
+      deleteBranches: options.deleteBranches,
+      deleteRunDir: options.deleteRunDir,
+    });
+    process.stdout.write(
+      options.json ? `${JSON.stringify(result, null, 2)}\n` : renderCleanupResult(result),
+    );
+    return 0;
+  }
   if (options.command !== "run" && options.command !== "dry-run") {
     throw new UserFacingError(`Unknown command: ${options.command}`);
   }
   const parsed = await loadMatrix(options);
   const dry = options.command === "dry-run" || options.dryRun;
   const resolved = await resolveRun(parsed.matrix, parsed.hash, options, dry ? "dry-run" : "run");
+  if (options.launch) {
+    const launchOptions = {
+      terminal: options.terminal ?? "ghostty",
+      layout: options.layout,
+    };
+    if (dry) {
+      const output = renderLaunchDryRun(resolved, launchOptions);
+      process.stdout.write(
+        options.json
+          ? `${JSON.stringify(launchDryRunJson(resolved, launchOptions), null, 2)}\n`
+          : output,
+      );
+      return 0;
+    }
+    const metadata = await launchMatrix(resolved, parsed.hash, launchOptions);
+    process.stdout.write(
+      options.json
+        ? `${JSON.stringify(metadata, null, 2)}\n`
+        : `Launch complete: ${resolved.runDir}\n`,
+    );
+    return 0;
+  }
   if (dry) {
     const output = renderDryRun(resolved);
     process.stdout.write(

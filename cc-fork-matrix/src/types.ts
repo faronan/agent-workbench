@@ -1,7 +1,8 @@
 export type BackendId = "claude-cli" | "codex-cli" | "claude-agent-sdk";
 export type MatrixFormat = "json" | "yaml" | "toml";
-export type TerminalLauncher = "ghostty";
+export type TerminalLauncher = "ghostty" | "zellij";
 export type GhosttyLayout = "tabs" | "splits";
+export type LaunchLayout = "tabs" | "splits";
 export type VariantStatus =
   | "pending"
   | "running"
@@ -73,11 +74,17 @@ export interface CliOptions {
   allowDirtyBase?: boolean;
   failFast?: boolean;
   noVerify?: boolean;
+  force?: boolean;
   json?: boolean;
   dryRun?: boolean;
+  last?: boolean;
+  launch?: boolean;
   variant?: string;
+  exceptVariant?: string;
+  deleteBranches?: boolean;
+  deleteRunDir?: boolean;
   terminal?: TerminalLauncher;
-  layout?: GhosttyLayout;
+  layout?: LaunchLayout;
 }
 
 export interface ResolvedRun {
@@ -141,7 +148,20 @@ export interface CommandInvocation {
   cwd: string;
   argv: string[];
   shellCommand: string;
+  displayShellCommand?: string;
+  containsSensitiveArgs?: boolean;
 }
+
+export interface AgentLaunchTarget {
+  name: string;
+  slug: string;
+  branch: string;
+  worktree: string;
+  promptSha256: string;
+  command: CommandInvocation;
+}
+
+export type CodexLaunchTarget = AgentLaunchTarget;
 
 export type VariantOpenCommand =
   | {
@@ -179,6 +199,15 @@ export interface VerificationResult {
   durationMs: number;
 }
 
+export interface RunLaunchMetadata {
+  mode: "terminal";
+  terminal: TerminalLauncher;
+  layout: "tabs" | "splits";
+  launchedAt: string;
+  launcherStrategy: "ghostty-command-env" | "zellij-new-tab-argv";
+  promptStoragePolicy: "not-persisted";
+}
+
 export interface VariantResult {
   name: string;
   slug: string;
@@ -195,9 +224,11 @@ export interface VariantResult {
   sessionIdUnavailableReason?: string;
   openCommand: VariantOpenCommand;
   verification: VerificationResult[];
+  verificationCommands: VerificationCommand[];
   diffstat: string;
   changedFiles: string[];
   artifactDir: string;
+  finalizedAt?: string;
   error?: string;
 }
 
@@ -220,5 +251,6 @@ export interface RunMetadata {
   matrixHash: string;
   dirtyBase: boolean;
   dirtyBaseStatus: string;
+  launch?: RunLaunchMetadata;
   variants: VariantResult[];
 }
