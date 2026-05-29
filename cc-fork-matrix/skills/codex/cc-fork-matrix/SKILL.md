@@ -72,10 +72,18 @@ wrapper reports that `dist/cli.js` is missing, run
   matrix launch dry run, regenerate the in-memory matrix because prompts are not
   persisted.
 
+## Ask-only Mode
+
+`cc-fork-matrix ask` is Claude CLI only. From a Codex session, use it only when
+the user provides an explicit Claude source session id or name; otherwise use
+the matrix launch workflow for Codex forks.
+
 ## Safety
 
 - Do not copy raw transcripts into the matrix.
 - Do not copy raw prompt history or session logs into variant prompts.
+- For ask-only mode, do not persist raw question text; rely on question hashes
+  and saved answer summaries.
 - Do not include secrets in prompts.
 - Do not print or persist the full launch command in assistant messages,
   metadata, reports, or dry-run output.

@@ -80,10 +80,27 @@ wrapper reports that `dist/cli.js` is missing, run
   matrix launch dry run, regenerate the in-memory matrix because prompts are not
   persisted.
 
+## Ask-only Mode
+
+Use `ask` when the user wants multiple advisory viewpoints without worktrees or
+branch changes. Create an in-memory ask YAML with `source.backend: claude-cli`,
+`source.session: current`, and `questions[].question`, then run:
+
+```bash
+<CC_FORK_MATRIX_CMD> ask --stdin --format yaml --source current --dry-run
+<CC_FORK_MATRIX_CMD> ask --stdin --format yaml --source current
+<CC_FORK_MATRIX_CMD> report --last
+```
+
+Do not use `open`, `finalize`, or `cleanup` for ask runs. Use `status`, `report`,
+and `list --json` for follow-up.
+
 ## Safety
 
 - Do not copy raw transcripts into the matrix.
 - Do not copy raw prompt history or session logs into variant prompts.
+- For ask-only mode, do not persist raw question text; rely on question hashes
+  and saved answer summaries.
 - Do not include secrets in prompts.
 - Do not print or persist the full launch command in assistant messages,
   metadata, reports, or dry-run output.
