@@ -1,15 +1,25 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createBackend } from "./backend.ts";
+import { UserFacingError } from "./errors.ts";
 import { changedFiles, createWorktree, diffPatch, diffStat, pathExists } from "./git.ts";
+import { buildCodexLaunchTarget, type LaunchMatrixOptions, launchCodexTargets } from "./launch.ts";
 import { initialMetadata, upsertVariant, writeMetadata } from "./metadata.ts";
 import { buildVariantOpenCommand } from "./open-command.ts";
 import { redact } from "./redaction.ts";
 import { renderReport, writeVariantSummary } from "./report.ts";
 import { runCommand } from "./shell.ts";
-import type { ResolvedRun, ResolvedVariant, RunMetadata, VariantResult } from "./types.ts";
+import type {
+  CodexLaunchTarget,
+  ResolvedRun,
+  ResolvedVariant,
+  RunMetadata,
+  VariantResult,
+} from "./types.ts";
 
 const TOOL_VERSION = "0.1.0";
+export const CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON =
+  "Codex CLI launch mode does not expose launched fork session ids.";
 
 async function runVerification(variant: ResolvedVariant): Promise<{
   log: string;
@@ -127,6 +137,19 @@ async function runVariant(args: {
   return result;
 }
 
+async function writeVariantResult(
+  variant: ResolvedVariant,
+  metadata: RunMetadata,
+  metadataPath: string,
+  result: VariantResult,
+): Promise<void> {
+  await mkdir(variant.artifactDir, { recursive: true });
+  await writeFile(variant.metadataPath, `${JSON.stringify(result, null, 2)}\n`);
+  await writeVariantSummary(variant.summaryPath, result);
+  upsertVariant(metadata, result);
+  await writeMetadata(metadataPath, metadata);
+}
+
 function openCommandForForkFailure(
   resolved: ResolvedRun,
   variant: ResolvedVariant,
@@ -146,11 +169,8 @@ function openCommandForForkFailure(
   });
 }
 
-export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Promise<RunMetadata> {
-  const backend = createBackend(resolved.backend, resolved.matrix);
-  await backend.checkAvailability();
-  const metadataPath = resolve(resolved.runDir, "metadata.json");
-  const metadata = initialMetadata({
+function initialRunMetadata(resolved: ResolvedRun, matrixHash: string): RunMetadata {
+  return initialMetadata({
     toolVersion: TOOL_VERSION,
     runId: resolved.runId,
     name: resolved.matrix.name,
@@ -165,6 +185,36 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
     dirtyBase: resolved.dirtyBase,
     dirtyBaseStatus: resolved.dirtyBaseStatus,
   });
+}
+
+function codexLaunchRunningResult(resolved: ResolvedRun, variant: ResolvedVariant): VariantResult {
+  return {
+    name: variant.name,
+    slug: variant.slug,
+    status: "running",
+    branch: variant.branch,
+    worktree: variant.worktree,
+    sessionIdAvailability: "unavailable",
+    sessionIdUnavailableReason: CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON,
+    openCommand: buildVariantOpenCommand({
+      backend: resolved.backend,
+      matrix: resolved.matrix,
+      variant,
+      sessionIdAvailability: "unavailable",
+      sessionIdUnavailableReason: CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON,
+    }),
+    verification: [],
+    diffstat: "",
+    changedFiles: [],
+    artifactDir: variant.artifactDir,
+  };
+}
+
+export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Promise<RunMetadata> {
+  const backend = createBackend(resolved.backend, resolved.matrix);
+  await backend.checkAvailability();
+  const metadataPath = resolve(resolved.runDir, "metadata.json");
+  const metadata = initialRunMetadata(resolved, matrixHash);
   await writeMetadata(metadataPath, metadata);
 
   let nextIndex = 0;
@@ -216,6 +266,93 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
   await Promise.all(
     Array.from({ length: Math.max(1, resolved.concurrency) }, async () => worker()),
   );
+  await writeFile(resolve(resolved.runDir, "report.md"), renderReport(metadata));
+  return metadata;
+}
+
+export async function launchMatrix(
+  resolved: ResolvedRun,
+  matrixHash: string,
+  options: LaunchMatrixOptions,
+): Promise<RunMetadata> {
+  if (resolved.backend !== "codex-cli") {
+    throw new UserFacingError("run --launch is only supported with the codex-cli backend.");
+  }
+  const backend = createBackend(resolved.backend, resolved.matrix);
+  await backend.checkAvailability();
+  const metadataPath = resolve(resolved.runDir, "metadata.json");
+  const metadata = initialRunMetadata(resolved, matrixHash);
+  await writeMetadata(metadataPath, metadata);
+
+  const launchedVariants: ResolvedVariant[] = [];
+  const targets: CodexLaunchTarget[] = [];
+  for (const variant of resolved.variants) {
+    try {
+      await mkdir(variant.artifactDir, { recursive: true });
+      await createWorktree(resolved.repoRoot, variant.branch, variant.worktree, resolved.baseRef);
+      launchedVariants.push(variant);
+      targets.push(
+        buildCodexLaunchTarget({
+          matrix: resolved.matrix,
+          sourceSession: resolved.sourceSession,
+          variant,
+        }),
+      );
+    } catch (error) {
+      const result: VariantResult = {
+        name: variant.name,
+        slug: variant.slug,
+        status: "fork_failed",
+        branch: variant.branch,
+        worktree: variant.worktree,
+        openCommand: openCommandForForkFailure(resolved, variant),
+        verification: [],
+        diffstat: "",
+        changedFiles: [],
+        artifactDir: variant.artifactDir,
+        error: redact((error as Error).message),
+      };
+      await writeVariantResult(variant, metadata, metadataPath, result);
+      if (resolved.failFast) {
+        break;
+      }
+    }
+  }
+
+  if (targets.length > 0) {
+    try {
+      await launchCodexTargets(targets, options);
+    } catch (error) {
+      for (const variant of launchedVariants) {
+        const result: VariantResult = {
+          name: variant.name,
+          slug: variant.slug,
+          status: "fork_failed",
+          branch: variant.branch,
+          worktree: variant.worktree,
+          openCommand: openCommandForForkFailure(resolved, variant),
+          verification: [],
+          diffstat: "",
+          changedFiles: [],
+          artifactDir: variant.artifactDir,
+          error: redact((error as Error).message),
+        };
+        await writeVariantResult(variant, metadata, metadataPath, result);
+      }
+      await writeFile(resolve(resolved.runDir, "report.md"), renderReport(metadata));
+      throw error;
+    }
+
+    for (const variant of launchedVariants) {
+      await writeVariantResult(
+        variant,
+        metadata,
+        metadataPath,
+        codexLaunchRunningResult(resolved, variant),
+      );
+    }
+  }
+
   await writeFile(resolve(resolved.runDir, "report.md"), renderReport(metadata));
   return metadata;
 }

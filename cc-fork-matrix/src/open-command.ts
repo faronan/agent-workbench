@@ -12,7 +12,7 @@ function shellJoin(argv: string[]): string {
   return argv.map((arg) => shellQuote(arg)).join(" ");
 }
 
-function commandInvocation(cwd: string, argv: string[]): CommandInvocation {
+export function commandInvocation(cwd: string, argv: string[]): CommandInvocation {
   return {
     cwd,
     argv,
@@ -37,7 +37,7 @@ function ghosttyInvocation(cwd: string, argv: string[]): CommandInvocation {
   };
 }
 
-function backendCommand(backend: BackendId, matrix: MatrixDefinition): string | undefined {
+export function backendCommand(backend: BackendId, matrix: MatrixDefinition): string | undefined {
   if (backend === "claude-cli") {
     return matrix.backend?.claude?.command ?? "claude";
   }

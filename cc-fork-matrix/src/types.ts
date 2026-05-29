@@ -1,7 +1,8 @@
 export type BackendId = "claude-cli" | "codex-cli" | "claude-agent-sdk";
 export type MatrixFormat = "json" | "yaml" | "toml";
-export type TerminalLauncher = "ghostty";
+export type TerminalLauncher = "ghostty" | "zellij";
 export type GhosttyLayout = "tabs" | "splits";
+export type LaunchLayout = "tabs" | "splits";
 export type VariantStatus =
   | "pending"
   | "running"
@@ -75,9 +76,10 @@ export interface CliOptions {
   noVerify?: boolean;
   json?: boolean;
   dryRun?: boolean;
+  launch?: boolean;
   variant?: string;
   terminal?: TerminalLauncher;
-  layout?: GhosttyLayout;
+  layout?: LaunchLayout;
 }
 
 export interface ResolvedRun {
@@ -141,6 +143,15 @@ export interface CommandInvocation {
   cwd: string;
   argv: string[];
   shellCommand: string;
+}
+
+export interface CodexLaunchTarget {
+  name: string;
+  slug: string;
+  branch: string;
+  worktree: string;
+  promptSha256: string;
+  command: CommandInvocation;
 }
 
 export type VariantOpenCommand =

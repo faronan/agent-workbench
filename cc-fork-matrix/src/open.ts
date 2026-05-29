@@ -75,6 +75,9 @@ export async function printOpenCommand(
   if (options.terminal && options.json) {
     throw new UserFacingError("--json cannot be combined with --terminal ghostty.");
   }
+  if (options.terminal && options.terminal !== "ghostty") {
+    throw new UserFacingError("open --terminal only supports ghostty.");
+  }
   if (options.layout && options.terminal !== "ghostty") {
     throw new UserFacingError("--layout requires --terminal ghostty.");
   }

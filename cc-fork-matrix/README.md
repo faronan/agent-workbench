@@ -9,6 +9,8 @@ diffs, metadata, and a comparison report without copying raw transcripts or prom
 ```bash
 cc-fork-matrix dry-run matrix.yaml
 cc-fork-matrix run matrix.yaml
+cc-fork-matrix run matrix.yaml --launch --terminal ghostty --dry-run
+cc-fork-matrix run matrix.yaml --launch --terminal zellij
 cc-fork-matrix report ../.cc-fork-matrix/my-run/runs/20260526T200000
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract --json
@@ -85,11 +87,38 @@ as the explicit `SESSION_ID` to `codex fork`. It does not fall back to
 `codex fork --last`; pass `--source <SESSION_ID>` or set `source.session` when
 running outside a Codex-managed session.
 
-Before launching variants, the backend runs `codex fork --help` and verifies that
+Before starting variants, the backend runs `codex fork --help` and verifies that
 the installed CLI exposes `codex fork [SESSION_ID] [PROMPT]` with `-C/--cd`.
 The launched fork session id is not available from the interactive CLI, so reports
 record the session as unavailable and emit a worktree-open command such as
 `cd <worktree> && codex`.
+
+### Codex Launch Mode
+
+For Codex, `run --launch` creates all variant worktrees first, then launches the
+fork commands together in a terminal target:
+
+```bash
+cc-fork-matrix run matrix.yaml --launch --terminal ghostty
+cc-fork-matrix run matrix.yaml --launch --terminal zellij
+```
+
+Launch mode is explicit and Codex-only. Each in-memory launch command uses:
+
+```text
+codex fork <source-session> <variant-prompt> -C <worktree>
+```
+
+The raw prompt and full terminal launch command are not written to metadata,
+reports, or `open` output. After a successful launch, variant metadata records
+`status: running`, `sessionIdAvailability: unavailable`, and an open-worktree
+fallback command such as `cd <worktree> && codex`.
+
+`--dry-run` for launch mode prints only `promptSha256`, `branch`, `worktree`, and
+the launch target. It does not print the raw prompt or the `codex fork` command.
+
+Ghostty launch mode supports `--layout tabs|splits`. Zellij launch mode uses one
+tab per variant through `zellij action new-tab` and only supports tabs.
 
 ## Open Command Contract
 
@@ -128,9 +157,8 @@ If Ghostty is not installed, `osascript` is unavailable, or macOS Automation
 permissions block AppleScript, the command exits non-zero and prints the manual
 commands to run yourself.
 
-Zellij can script tabs and panes, but that would be a run-level group launcher
-rather than a per-variant open command. It is intentionally not part of this
-contract. tmux is not a target launcher.
+Zellij is supported only by Codex launch mode. It is not part of the per-variant
+`open` command contract. tmux is not a target launcher.
 
 ## Safety
 

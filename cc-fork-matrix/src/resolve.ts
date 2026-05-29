@@ -46,6 +46,9 @@ export async function resolveRun(
   }
 
   const backend = options.backend ?? matrix.source?.backend ?? "claude-cli";
+  if (options.launch && backend !== "codex-cli") {
+    throw new UserFacingError("run --launch is only supported with the codex-cli backend.");
+  }
   const sourceRaw = options.source ?? matrix.source?.session ?? "current";
   let sourceSession: string;
   let sourceResolvedFrom: ResolvedRun["sourceResolvedFrom"];
@@ -82,7 +85,7 @@ export async function resolveRun(
   );
   const runDir = resolve(stateRoot, "runs", runId);
   const concurrency = options.concurrency ?? matrix.run?.concurrency ?? 1;
-  if (backend === "codex-cli" && concurrency > 1) {
+  if (backend === "codex-cli" && concurrency > 1 && !options.launch) {
     throw new UserFacingError(
       "codex-cli backend launches interactive fork sessions and requires concurrency: 1.",
     );

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runCommand } from "../src/shell.ts";
 import type { RunMetadata } from "../src/types.ts";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -120,6 +121,31 @@ async function withRunDir(
   }
 }
 
+async function tempRepo() {
+  const dir = await mkdtemp(join(tmpdir(), "ccfm-cli-launch-"));
+  await runCommand("git", ["init"], dir);
+  await runCommand("git", ["config", "user.email", "test@example.com"], dir);
+  await runCommand("git", ["config", "user.name", "Test"], dir);
+  await writeFile(join(dir, "README.md"), "hello\n");
+  await runCommand("git", ["add", "README.md"], dir);
+  await runCommand("git", ["commit", "-m", "init"], dir);
+  return dir;
+}
+
+async function withMatrixFile(
+  text: string,
+  fn: (args: { matrixPath: string }) => Promise<void>,
+): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), "ccfm-cli-matrix-"));
+  try {
+    const matrixPath = join(dir, "matrix.yaml");
+    await writeFile(matrixPath, text);
+    await fn({ matrixPath });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 for (const command of ["open", "status", "report"] as const) {
   test(`${command} reports legacy metadata as a user-facing CLI error`, async () => {
     await withRunDir(legacyResumeCommandMetadata(), async ({ runDir }) => {
@@ -144,4 +170,143 @@ test("status prints valid metadata through the CLI", async () => {
     const metadata = JSON.parse(result.stdout) as RunMetadata;
     assert.equal(metadata.variants[0].openCommand.kind, "resume-session");
   });
+});
+
+test("run launch dry-run prints Ghostty launch targets without prompt text", async () => {
+  const repo = await tempRepo();
+  try {
+    await withMatrixFile(
+      `
+version: 1
+name: cli-codex-launch
+repo: ${repo}
+source:
+  backend: codex-cli
+  session: source-session
+variants:
+  - name: option-a
+    prompt: hidden cli prompt
+`,
+      async ({ matrixPath }) => {
+        const result = await runCli([
+          "run",
+          matrixPath,
+          "--launch",
+          "--terminal",
+          "ghostty",
+          "--dry-run",
+        ]);
+
+        assert.equal(result.code, 0);
+        assert.equal(result.stderr, "");
+        assert.match(result.stdout, /Launch target: ghostty tabs/);
+        assert.match(result.stdout, /promptSha256:/);
+        assert.doesNotMatch(result.stdout, /hidden cli prompt/);
+        assert.doesNotMatch(result.stdout, /codex fork/);
+      },
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("run launch dry-run prints Zellij launch targets as json", async () => {
+  const repo = await tempRepo();
+  try {
+    await withMatrixFile(
+      `
+version: 1
+name: cli-codex-launch-json
+repo: ${repo}
+source:
+  backend: codex-cli
+  session: source-session
+variants:
+  - name: option-a
+    prompt: hidden zellij prompt
+`,
+      async ({ matrixPath }) => {
+        const result = await runCli([
+          "run",
+          matrixPath,
+          "--launch",
+          "--terminal",
+          "zellij",
+          "--dry-run",
+          "--json",
+        ]);
+
+        assert.equal(result.code, 0);
+        assert.equal(result.stderr, "");
+        const payload = JSON.parse(result.stdout);
+        assert.equal(payload.launch, true);
+        assert.equal(payload.terminal, "zellij");
+        assert.equal(payload.layout, "tabs");
+        assert.equal(payload.variants[0].launchTarget.terminal, "zellij");
+        assert.equal(payload.variants[0].launchTarget.layout, "tabs");
+        assert.equal(typeof payload.variants[0].promptSha256, "string");
+        assert.doesNotMatch(result.stdout, /hidden zellij prompt/);
+        assert.doesNotMatch(result.stdout, /codex fork/);
+      },
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("run launch requires a terminal", async () => {
+  const result = await runCli(["run", "matrix.yaml", "--launch"]);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /requires --terminal/);
+});
+
+test("run launch dry-run rejects non-Codex backend", async () => {
+  const repo = await tempRepo();
+  try {
+    await withMatrixFile(
+      `
+version: 1
+name: cli-claude-launch
+repo: ${repo}
+source:
+  backend: claude-cli
+  session: source-session
+variants:
+  - name: option-a
+    prompt: do a
+`,
+      async ({ matrixPath }) => {
+        const result = await runCli([
+          "run",
+          matrixPath,
+          "--launch",
+          "--terminal",
+          "ghostty",
+          "--dry-run",
+        ]);
+
+        assert.equal(result.code, 1);
+        assert.match(result.stderr, /codex-cli backend/);
+      },
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("run launch rejects Zellij split layout", async () => {
+  const result = await runCli([
+    "run",
+    "matrix.yaml",
+    "--launch",
+    "--terminal",
+    "zellij",
+    "--layout",
+    "splits",
+    "--dry-run",
+  ]);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /zellij launch mode only supports the tabs layout/i);
 });

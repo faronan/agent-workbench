@@ -1,11 +1,12 @@
 #!/usr/bin/env -S node --experimental-strip-types
 import { resolve } from "node:path";
 import { UserFacingError } from "./errors.ts";
+import { launchDryRunJson, renderLaunchDryRun } from "./launch.ts";
 import { parseMatrixText, readMatrixFile } from "./matrix.ts";
 import { printOpenCommand } from "./open.ts";
 import { regenerateReport } from "./report.ts";
 import { resolveRun } from "./resolve.ts";
-import { dryRunJson, renderDryRun, runMatrix } from "./runner.ts";
+import { dryRunJson, launchMatrix, renderDryRun, runMatrix } from "./runner.ts";
 import { MATRIX_SCHEMA } from "./schema.ts";
 import { printStatus } from "./status.ts";
 import type { CliOptions, MatrixFormat } from "./types.ts";
@@ -15,6 +16,7 @@ function help(): string {
 
 Usage:
   cc-fork-matrix run <matrix.yaml>
+  cc-fork-matrix run <matrix.yaml> --launch --terminal ghostty|zellij [--layout tabs|splits] [--dry-run]
   cc-fork-matrix run --stdin --format yaml
   cc-fork-matrix dry-run <matrix.yaml|--stdin>
   cc-fork-matrix report <run-dir>
@@ -37,7 +39,8 @@ Options:
   --format <yaml|toml|json>
   --json
   --dry-run
-  --terminal <ghostty>
+  --launch
+  --terminal <ghostty|zellij>
   --layout <tabs|splits>
 `;
 }
@@ -86,7 +89,7 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--terminal": {
         const terminal = next();
-        if (terminal !== "ghostty") {
+        if (terminal !== "ghostty" && terminal !== "zellij") {
           throw new UserFacingError(`Unknown terminal: ${terminal}`);
         }
         options.terminal = terminal;
@@ -121,6 +124,9 @@ function parseArgs(argv: string[]): CliOptions {
       case "--dry-run":
         options.dryRun = true;
         break;
+      case "--launch":
+        options.launch = true;
+        break;
       case "--help":
       case "-h":
         options.command = "help";
@@ -129,10 +135,26 @@ function parseArgs(argv: string[]): CliOptions {
         throw new UserFacingError(`Unknown option: ${arg}`);
     }
   }
-  if (options.terminal && options.command !== "open") {
-    throw new UserFacingError("--terminal is only supported by open.");
+  const isRunCommand = options.command === "run" || options.command === "dry-run";
+  if (options.launch && !isRunCommand) {
+    throw new UserFacingError("--launch is only supported by run and dry-run.");
   }
-  if (options.layout && options.terminal !== "ghostty") {
+  if (options.terminal && options.command === "open" && options.terminal !== "ghostty") {
+    throw new UserFacingError("open --terminal only supports ghostty.");
+  }
+  if (options.terminal && options.command !== "open" && !(isRunCommand && options.launch)) {
+    throw new UserFacingError("--terminal is only supported by open or run --launch.");
+  }
+  if (options.launch && isRunCommand && !options.terminal) {
+    throw new UserFacingError("run --launch requires --terminal ghostty|zellij.");
+  }
+  if (options.layout && !options.terminal) {
+    throw new UserFacingError("--layout requires --terminal ghostty|zellij.");
+  }
+  if (options.layout && options.terminal === "zellij" && options.layout !== "tabs") {
+    throw new UserFacingError("zellij launch mode only supports the tabs layout.");
+  }
+  if (options.layout && options.command === "open" && options.terminal !== "ghostty") {
     throw new UserFacingError("--layout requires --terminal ghostty.");
   }
   return options;
@@ -202,6 +224,28 @@ async function main(argv: string[]): Promise<number> {
   const parsed = await loadMatrix(options);
   const dry = options.command === "dry-run" || options.dryRun;
   const resolved = await resolveRun(parsed.matrix, parsed.hash, options, dry ? "dry-run" : "run");
+  if (options.launch) {
+    const launchOptions = {
+      terminal: options.terminal ?? "ghostty",
+      layout: options.layout,
+    };
+    if (dry) {
+      const output = renderLaunchDryRun(resolved, launchOptions);
+      process.stdout.write(
+        options.json
+          ? `${JSON.stringify(launchDryRunJson(resolved, launchOptions), null, 2)}\n`
+          : output,
+      );
+      return 0;
+    }
+    const metadata = await launchMatrix(resolved, parsed.hash, launchOptions);
+    process.stdout.write(
+      options.json
+        ? `${JSON.stringify(metadata, null, 2)}\n`
+        : `Launch complete: ${resolved.runDir}\n`,
+    );
+    return 0;
+  }
   if (dry) {
     const output = renderDryRun(resolved);
     process.stdout.write(
