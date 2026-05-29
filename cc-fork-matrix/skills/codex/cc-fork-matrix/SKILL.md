@@ -1,12 +1,7 @@
 ---
 name: cc-fork-matrix
-description: Create and launch a cc-fork-matrix experiment from the current Claude Code session. Use when the user asks to try multiple options in separate Claude Code sessions/worktrees without hand-writing a matrix file.
+description: Create and launch a cc-fork-matrix experiment from the current Codex session. Use when the user asks to try multiple options in separate Codex sessions/worktrees without hand-writing a matrix file.
 argument-hint: '"variant request or path to matrix"'
-disable-model-invocation: true
-allowed-tools:
-  - Bash(cc-fork-matrix *)
-  - Read
-  - Write
 ---
 
 # cc-fork-matrix
@@ -16,14 +11,12 @@ separate sessions or invokes `cc-fork-matrix`.
 
 ## Workflow
 
-1. If `$ARGUMENTS` points to an existing `.yaml`, `.yml`, `.toml`, or `.json` file,
-   use that matrix file.
-2. Otherwise, create a temporary matrix from the user's request:
-   - Use `source.backend: claude-cli`.
+1. If the user provided a matrix file path, use that file.
+2. Otherwise, create a temporary YAML matrix in memory:
+   - Use `source.backend: codex-cli`.
    - Use `source.session: current`.
    - Create one variant per requested hypothesis.
-   - Use concise variant prompts grounded in the user's request and current repo
-     state.
+   - Keep each variant prompt short and task-focused.
    - Include verification commands only when the user or project context makes them clear.
    - Do not save the matrix file unless the user explicitly asks.
 3. Always run a dry run first, passing the matrix through stdin:
@@ -51,5 +44,5 @@ separate sessions or invokes `cc-fork-matrix`.
 - Do not print or persist the full launch command when it contains the variant prompt.
 - Do not request `git commit`, `git push`, `git merge`, `git rebase`, `git stash`,
   or destructive cleanup.
-- If `CLAUDE_CODE_SESSION_ID` is unavailable, tell the user to pass an explicit
-  source session ID or name.
+- If `CODEX_THREAD_ID` is unavailable, tell the user to pass an explicit source
+  session ID.

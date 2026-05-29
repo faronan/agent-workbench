@@ -145,7 +145,7 @@ export interface CommandInvocation {
   shellCommand: string;
 }
 
-export interface CodexLaunchTarget {
+export interface AgentLaunchTarget {
   name: string;
   slug: string;
   branch: string;
@@ -153,6 +153,8 @@ export interface CodexLaunchTarget {
   promptSha256: string;
   command: CommandInvocation;
 }
+
+export type CodexLaunchTarget = AgentLaunchTarget;
 
 export type VariantOpenCommand =
   | {

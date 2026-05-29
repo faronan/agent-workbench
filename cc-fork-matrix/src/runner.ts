@@ -3,14 +3,14 @@ import { resolve } from "node:path";
 import { createBackend } from "./backend.ts";
 import { UserFacingError } from "./errors.ts";
 import { changedFiles, createWorktree, diffPatch, diffStat, pathExists } from "./git.ts";
-import { buildCodexLaunchTarget, type LaunchMatrixOptions, launchCodexTargets } from "./launch.ts";
+import { buildAgentLaunchTarget, type LaunchMatrixOptions, launchAgentTargets } from "./launch.ts";
 import { initialMetadata, upsertVariant, writeMetadata } from "./metadata.ts";
 import { buildVariantOpenCommand } from "./open-command.ts";
 import { redact } from "./redaction.ts";
 import { renderReport, writeVariantSummary } from "./report.ts";
 import { runCommand } from "./shell.ts";
 import type {
-  CodexLaunchTarget,
+  AgentLaunchTarget,
   ResolvedRun,
   ResolvedVariant,
   RunMetadata,
@@ -20,6 +20,15 @@ import type {
 const TOOL_VERSION = "0.1.0";
 export const CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON =
   "Codex CLI launch mode does not expose launched fork session ids.";
+export const CLAUDE_LAUNCH_SESSION_UNAVAILABLE_REASON =
+  "Claude CLI terminal launch mode does not expose launched fork session ids.";
+
+function launchSessionUnavailableReason(resolved: ResolvedRun): string {
+  if (resolved.backend === "claude-cli") {
+    return CLAUDE_LAUNCH_SESSION_UNAVAILABLE_REASON;
+  }
+  return CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON;
+}
 
 async function runVerification(variant: ResolvedVariant): Promise<{
   log: string;
@@ -187,7 +196,11 @@ function initialRunMetadata(resolved: ResolvedRun, matrixHash: string): RunMetad
   });
 }
 
-function codexLaunchRunningResult(resolved: ResolvedRun, variant: ResolvedVariant): VariantResult {
+function terminalLaunchRunningResult(
+  resolved: ResolvedRun,
+  variant: ResolvedVariant,
+): VariantResult {
+  const sessionIdUnavailableReason = launchSessionUnavailableReason(resolved);
   return {
     name: variant.name,
     slug: variant.slug,
@@ -195,13 +208,13 @@ function codexLaunchRunningResult(resolved: ResolvedRun, variant: ResolvedVarian
     branch: variant.branch,
     worktree: variant.worktree,
     sessionIdAvailability: "unavailable",
-    sessionIdUnavailableReason: CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON,
+    sessionIdUnavailableReason,
     openCommand: buildVariantOpenCommand({
       backend: resolved.backend,
       matrix: resolved.matrix,
       variant,
       sessionIdAvailability: "unavailable",
-      sessionIdUnavailableReason: CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON,
+      sessionIdUnavailableReason,
     }),
     verification: [],
     diffstat: "",
@@ -275,8 +288,8 @@ export async function launchMatrix(
   matrixHash: string,
   options: LaunchMatrixOptions,
 ): Promise<RunMetadata> {
-  if (resolved.backend !== "codex-cli") {
-    throw new UserFacingError("run --launch is only supported with the codex-cli backend.");
+  if (resolved.backend !== "codex-cli" && resolved.backend !== "claude-cli") {
+    throw new UserFacingError("run --launch is only supported with claude-cli or codex-cli.");
   }
   const backend = createBackend(resolved.backend, resolved.matrix);
   await backend.checkAvailability();
@@ -285,16 +298,18 @@ export async function launchMatrix(
   await writeMetadata(metadataPath, metadata);
 
   const launchedVariants: ResolvedVariant[] = [];
-  const targets: CodexLaunchTarget[] = [];
+  const targets: AgentLaunchTarget[] = [];
   for (const variant of resolved.variants) {
     try {
       await mkdir(variant.artifactDir, { recursive: true });
       await createWorktree(resolved.repoRoot, variant.branch, variant.worktree, resolved.baseRef);
       launchedVariants.push(variant);
       targets.push(
-        buildCodexLaunchTarget({
+        buildAgentLaunchTarget({
+          backend: resolved.backend,
           matrix: resolved.matrix,
           sourceSession: resolved.sourceSession,
+          runId: resolved.runId,
           variant,
         }),
       );
@@ -321,7 +336,7 @@ export async function launchMatrix(
 
   if (targets.length > 0) {
     try {
-      await launchCodexTargets(targets, options);
+      await launchAgentTargets(targets, options);
     } catch (error) {
       for (const variant of launchedVariants) {
         const result: VariantResult = {
@@ -348,7 +363,7 @@ export async function launchMatrix(
         variant,
         metadata,
         metadataPath,
-        codexLaunchRunningResult(resolved, variant),
+        terminalLaunchRunningResult(resolved, variant),
       );
     }
   }

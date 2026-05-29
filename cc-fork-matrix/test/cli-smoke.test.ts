@@ -87,11 +87,11 @@ function legacyResumeCommandMetadata(): unknown {
   return metadata;
 }
 
-async function runCli(args: string[]): Promise<CliResult> {
+async function runCli(args: string[], input?: string): Promise<CliResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["--experimental-strip-types", cliPath, ...args], {
       cwd: packageRoot,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -105,6 +105,9 @@ async function runCli(args: string[]): Promise<CliResult> {
         stderr: Buffer.concat(stderr).toString("utf8"),
       });
     });
+    if (input !== undefined) {
+      child.stdin.end(input);
+    }
   });
 }
 
@@ -254,14 +257,7 @@ variants:
   }
 });
 
-test("run launch requires a terminal", async () => {
-  const result = await runCli(["run", "matrix.yaml", "--launch"]);
-
-  assert.equal(result.code, 1);
-  assert.match(result.stderr, /requires --terminal/);
-});
-
-test("run launch dry-run rejects non-Codex backend", async () => {
+test("run launch dry-run accepts Claude backend without prompt text", async () => {
   const repo = await tempRepo();
   try {
     await withMatrixFile(
@@ -271,6 +267,95 @@ name: cli-claude-launch
 repo: ${repo}
 source:
   backend: claude-cli
+  session: source-session
+verification:
+  commands:
+    - name: test
+      command: pnpm test
+variants:
+  - name: option-a
+    prompt: hidden claude prompt
+`,
+      async ({ matrixPath }) => {
+        const result = await runCli([
+          "run",
+          matrixPath,
+          "--launch",
+          "--terminal",
+          "ghostty",
+          "--dry-run",
+        ]);
+
+        assert.equal(result.code, 0);
+        assert.equal(result.stderr, "");
+        assert.match(result.stdout, /Source: claude-cli source-session/);
+        assert.match(result.stdout, /Launch target: ghostty tabs/);
+        assert.match(result.stdout, /promptSha256:/);
+        assert.match(result.stdout, /verification: test/);
+        assert.doesNotMatch(result.stdout, /hidden claude prompt/);
+        assert.doesNotMatch(result.stdout, /claude --resume/);
+      },
+    );
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("launch dry-run reads ephemeral matrix from stdin", async () => {
+  const repo = await tempRepo();
+  try {
+    const result = await runCli(
+      [
+        "dry-run",
+        "--stdin",
+        "--format",
+        "yaml",
+        "--source",
+        "source-session",
+        "--launch",
+        "--terminal",
+        "ghostty",
+      ],
+      `
+version: 1
+name: stdin-claude-launch
+repo: ${repo}
+source:
+  backend: claude-cli
+variants:
+  - name: option-a
+    prompt: hidden stdin prompt
+`,
+    );
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    assert.match(result.stdout, /Source: claude-cli source-session/);
+    assert.match(result.stdout, /Launch target: ghostty tabs/);
+    assert.doesNotMatch(result.stdout, /hidden stdin prompt/);
+    assert.doesNotMatch(result.stdout, /claude --resume/);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("run launch requires a terminal", async () => {
+  const result = await runCli(["run", "matrix.yaml", "--launch"]);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /requires --terminal/);
+});
+
+test("run launch dry-run rejects unsupported backend", async () => {
+  const repo = await tempRepo();
+  try {
+    await withMatrixFile(
+      `
+version: 1
+name: cli-unsupported-launch
+repo: ${repo}
+source:
+  backend: claude-agent-sdk
   session: source-session
 variants:
   - name: option-a
@@ -287,7 +372,7 @@ variants:
         ]);
 
         assert.equal(result.code, 1);
-        assert.match(result.stderr, /codex-cli backend/);
+        assert.match(result.stderr, /claude-cli or codex-cli/);
       },
     );
   } finally {

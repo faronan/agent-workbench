@@ -1,13 +1,13 @@
 import { UserFacingError } from "./errors.ts";
 import { runCommand } from "./shell.ts";
-import type { CodexLaunchTarget, CommandResult } from "./types.ts";
+import type { AgentLaunchTarget, CommandResult } from "./types.ts";
 
 export interface ZellijLaunchOptions {
   command?: string;
   executor?: (command: string, args: string[], cwd: string) => Promise<CommandResult>;
 }
 
-function zellijArgs(target: CodexLaunchTarget): string[] {
+function zellijArgs(target: AgentLaunchTarget): string[] {
   return [
     "action",
     "new-tab",
@@ -21,7 +21,7 @@ function zellijArgs(target: CodexLaunchTarget): string[] {
 }
 
 export async function launchZellijTabs(
-  targets: CodexLaunchTarget[],
+  targets: AgentLaunchTarget[],
   options: ZellijLaunchOptions = {},
 ): Promise<void> {
   if (targets.length === 0) {

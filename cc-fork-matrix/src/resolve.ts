@@ -46,8 +46,8 @@ export async function resolveRun(
   }
 
   const backend = options.backend ?? matrix.source?.backend ?? "claude-cli";
-  if (options.launch && backend !== "codex-cli") {
-    throw new UserFacingError("run --launch is only supported with the codex-cli backend.");
+  if (options.launch && backend === "claude-agent-sdk") {
+    throw new UserFacingError("run --launch is only supported with claude-cli or codex-cli.");
   }
   const sourceRaw = options.source ?? matrix.source?.session ?? "current";
   let sourceSession: string;

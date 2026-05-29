@@ -2,7 +2,8 @@ import { type GhosttyLaunchOptions, type GhosttyOpenTarget, launchGhostty } from
 import { backendCommand, commandInvocation } from "./open-command.ts";
 import { buildVariantPrompt } from "./prompt.ts";
 import type {
-  CodexLaunchTarget,
+  AgentLaunchTarget,
+  BackendId,
   GhosttyLayout,
   LaunchLayout,
   MatrixDefinition,
@@ -18,7 +19,7 @@ export interface LaunchMatrixOptions {
   ghostty?: Partial<GhosttyLaunchOptions>;
   zellij?: ZellijLaunchOptions;
   launcher?: (
-    targets: CodexLaunchTarget[],
+    targets: AgentLaunchTarget[],
     options: { terminal: TerminalLauncher; layout: "tabs" | "splits" },
   ) => Promise<void>;
 }
@@ -37,7 +38,7 @@ export function buildCodexLaunchTarget(args: {
   matrix: MatrixDefinition;
   sourceSession: string;
   variant: ResolvedVariant;
-}): CodexLaunchTarget {
+}): AgentLaunchTarget {
   const command = backendCommand("codex-cli", args.matrix) ?? "codex";
   const argv = [
     command,
@@ -57,6 +58,48 @@ export function buildCodexLaunchTarget(args: {
   };
 }
 
+export function buildClaudeLaunchTarget(args: {
+  matrix: MatrixDefinition;
+  sourceSession: string;
+  runId: string;
+  variant: ResolvedVariant;
+}): AgentLaunchTarget {
+  const command = backendCommand("claude-cli", args.matrix) ?? "claude";
+  const argv = [
+    command,
+    "--resume",
+    args.sourceSession,
+    "--fork-session",
+    "--name",
+    `${args.runId}-${args.variant.slug}`,
+    buildVariantPrompt(args.variant),
+  ];
+  return {
+    name: args.variant.name,
+    slug: args.variant.slug,
+    branch: args.variant.branch,
+    worktree: args.variant.worktree,
+    promptSha256: args.variant.promptSha256,
+    command: commandInvocation(args.variant.worktree, argv),
+  };
+}
+
+export function buildAgentLaunchTarget(args: {
+  backend: BackendId;
+  matrix: MatrixDefinition;
+  sourceSession: string;
+  runId: string;
+  variant: ResolvedVariant;
+}): AgentLaunchTarget {
+  if (args.backend === "codex-cli") {
+    return buildCodexLaunchTarget(args);
+  }
+  if (args.backend === "claude-cli") {
+    return buildClaudeLaunchTarget(args);
+  }
+  throw new Error(`${args.backend} does not have a terminal launch target.`);
+}
+
 function launchDryRunVariant(
   variant: ResolvedVariant,
   terminal: TerminalLauncher,
@@ -67,6 +110,7 @@ function launchDryRunVariant(
   branch: string;
   worktree: string;
   promptSha256: string;
+  verificationCommandNames: string[];
   launchTarget: {
     terminal: TerminalLauncher;
     layout: "tabs" | "splits";
@@ -78,6 +122,7 @@ function launchDryRunVariant(
     branch: variant.branch,
     worktree: variant.worktree,
     promptSha256: variant.promptSha256,
+    verificationCommandNames: variant.verificationCommands.map((command) => command.name),
     launchTarget: {
       terminal,
       layout: normalizedLaunchLayout(terminal, layout),
@@ -104,6 +149,9 @@ export function renderLaunchDryRun(resolved: ResolvedRun, options: LaunchMatrixO
     lines.push(`  branch: ${variant.branch}`);
     lines.push(`  worktree: ${variant.worktree}`);
     lines.push(`  promptSha256: ${variant.promptSha256}`);
+    lines.push(
+      `  verification: ${variant.verificationCommands.map((cmd) => cmd.name).join(", ") || "none"}`,
+    );
     lines.push(`  launchTarget: ${options.terminal} ${layout}`);
   }
   return `${lines.join("\n")}\n`;
@@ -133,8 +181,8 @@ export function launchDryRunJson(resolved: ResolvedRun, options: LaunchMatrixOpt
   };
 }
 
-export async function launchCodexTargets(
-  targets: CodexLaunchTarget[],
+export async function launchAgentTargets(
+  targets: AgentLaunchTarget[],
   options: LaunchMatrixOptions,
 ): Promise<void> {
   const layout = normalizedLaunchLayout(options.terminal, options.layout);
@@ -156,3 +204,5 @@ export async function launchCodexTargets(
   }
   await launchZellijTabs(targets, options.zellij);
 }
+
+export const launchCodexTargets = launchAgentTargets;
