@@ -41,7 +41,10 @@ separate sessions or invokes `cc-fork-matrix`.
 - Do not copy raw transcripts into the matrix.
 - Do not copy raw prompt history or session logs into variant prompts.
 - Do not include secrets in prompts.
-- Do not print or persist the full launch command when it contains the variant prompt.
+- Do not print or persist the full launch command in assistant messages,
+  metadata, reports, or dry-run output.
+- Use the normal launcher path; do not invent manual shell commands that expose
+  the variant prompt in terminal scrollback.
 - Do not request `git commit`, `git push`, `git merge`, `git rebase`, `git stash`,
   or destructive cleanup.
 - If `CODEX_THREAD_ID` is unavailable, tell the user to pass an explicit source

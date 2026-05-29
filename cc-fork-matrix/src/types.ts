@@ -143,6 +143,8 @@ export interface CommandInvocation {
   cwd: string;
   argv: string[];
   shellCommand: string;
+  displayShellCommand?: string;
+  containsSensitiveArgs?: boolean;
 }
 
 export interface AgentLaunchTarget {

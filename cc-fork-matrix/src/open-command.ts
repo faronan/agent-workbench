@@ -12,11 +12,16 @@ function shellJoin(argv: string[]): string {
   return argv.map((arg) => shellQuote(arg)).join(" ");
 }
 
-export function commandInvocation(cwd: string, argv: string[]): CommandInvocation {
+export function commandInvocation(
+  cwd: string,
+  argv: string[],
+  options: Pick<CommandInvocation, "containsSensitiveArgs" | "displayShellCommand"> = {},
+): CommandInvocation {
   return {
     cwd,
     argv,
     shellCommand: `cd ${shellQuote(cwd)} && ${shellJoin(argv)}`,
+    ...options,
   };
 }
 

@@ -54,7 +54,10 @@ export function buildCodexLaunchTarget(args: {
     branch: args.variant.branch,
     worktree: args.variant.worktree,
     promptSha256: args.variant.promptSha256,
-    command: commandInvocation(args.variant.worktree, argv),
+    command: commandInvocation(args.variant.worktree, argv, {
+      containsSensitiveArgs: true,
+      displayShellCommand: "omitted because the launch command contains the variant prompt",
+    }),
   };
 }
 
@@ -80,7 +83,10 @@ export function buildClaudeLaunchTarget(args: {
     branch: args.variant.branch,
     worktree: args.variant.worktree,
     promptSha256: args.variant.promptSha256,
-    command: commandInvocation(args.variant.worktree, argv),
+    command: commandInvocation(args.variant.worktree, argv, {
+      containsSensitiveArgs: true,
+      displayShellCommand: "omitted because the launch command contains the variant prompt",
+    }),
   };
 }
 

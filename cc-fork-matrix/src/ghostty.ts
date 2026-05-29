@@ -6,6 +6,18 @@ import type { CommandInvocation, CommandResult, GhosttyLayout } from "./types.ts
 
 const DEFAULT_GHOSTTY_APP_PATH = "/Applications/Ghostty.app";
 const DEFAULT_OSASCRIPT_PATH = "/usr/bin/osascript";
+const BASH_INDIRECT_VAR = "$" + "{!var}";
+const BASH_ARGS_ARRAY = "$" + "{args[@]}";
+const HIDDEN_ARG_RUNNER = [
+  "/bin/bash -lc 'decode_arg() { local decoded;",
+  'if decoded=$(printf %s "$1" | base64 --decode 2>/dev/null); then',
+  'printf %s "$decoded"; else printf %s "$1" | base64 -D; fi; };',
+  "args=(); for ((i=0; i<CC_FORK_MATRIX_ARGC; i++)); do",
+  'var="CC_FORK_MATRIX_ARG_B64_$i";',
+  `args+=("$(decode_arg "${BASH_INDIRECT_VAR}")");`,
+  'unset "$var"; done; unset CC_FORK_MATRIX_ARGC;',
+  `exec "${BASH_ARGS_ARRAY}"'`,
+].join(" ");
 
 export interface GhosttyOpenTarget {
   name: string;
@@ -43,12 +55,35 @@ function addConfigLines(lines: string[], target: GhosttyOpenTarget, index: numbe
   lines.push(
     `  set initial working directory of ${cfg} to ${applescriptString(target.command.cwd)}`,
   );
+  if (target.command.containsSensitiveArgs) {
+    lines.push(`  set command of ${cfg} to ${applescriptString(HIDDEN_ARG_RUNNER)}`);
+    lines.push(
+      `  set environment variables of ${cfg} to ${applescriptStringList(commandEnvironment(target.command))}`,
+    );
+  }
 }
 
 function addCommandInputLines(lines: string[], target: GhosttyOpenTarget, index: number): void {
+  if (target.command.containsSensitiveArgs) {
+    return;
+  }
   const term = termName(index);
   lines.push(`  input text ${applescriptString(target.command.shellCommand)} to ${term}`);
   lines.push(`  send key "enter" to ${term}`);
+}
+
+function applescriptStringList(values: string[]): string {
+  return `{${values.map(applescriptString).join(", ")}}`;
+}
+
+function commandEnvironment(command: CommandInvocation): string[] {
+  return [
+    `CC_FORK_MATRIX_ARGC=${command.argv.length}`,
+    ...command.argv.map(
+      (arg, index) =>
+        `CC_FORK_MATRIX_ARG_B64_${index}=${Buffer.from(arg, "utf8").toString("base64")}`,
+    ),
+  ];
 }
 
 function buildTabsScript(targets: GhosttyOpenTarget[]): string[] {
@@ -106,7 +141,12 @@ export function buildGhosttyAppleScript(
 }
 
 export function renderManualCommands(targets: GhosttyOpenTarget[]): string {
-  return targets.map((target) => `- ${target.name}: ${target.command.shellCommand}`).join("\n");
+  return targets
+    .map(
+      (target) =>
+        `- ${target.name}: ${target.command.displayShellCommand ?? target.command.shellCommand}`,
+    )
+    .join("\n");
 }
 
 export function renderGhosttyDryRun(targets: GhosttyOpenTarget[], layout: GhosttyLayout): string {
@@ -168,7 +208,7 @@ export async function launchGhostty(
   const script = buildGhosttyAppleScript(targets, options.layout);
   const executor =
     options.executor ??
-    ((scriptText: string) => runCommand(osascriptPath, ["-e", scriptText], process.cwd()));
+    ((scriptText: string) => runCommand(osascriptPath, [], process.cwd(), { input: scriptText }));
   const result = await executor(script);
   if (result.code !== 0) {
     const stderr = result.stderr.trim();

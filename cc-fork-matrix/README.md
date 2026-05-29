@@ -155,8 +155,16 @@ fallback command such as `cd <worktree> && <backend-command>`.
 verification command names, and the launch target. It does not print the raw
 prompt, `codex fork`, or `claude --resume` command.
 
-Ghostty launch mode supports `--layout tabs|splits`. Zellij launch mode uses one
-tab per variant through `zellij action new-tab` and only supports tabs.
+Ghostty launch mode supports `--layout tabs|splits`. For launch commands that
+contain a variant prompt, the AppleScript launcher uses Ghostty's surface
+configuration `command` and `environment variables` fields instead of typing the
+full shell command into the terminal. Prompt arguments are base64-encoded in
+transient environment variables, decoded by a short runner, unset before `exec`,
+and are not shown in terminal scrollback.
+
+Zellij launch mode uses one tab per variant through `zellij action new-tab` and
+only supports tabs. It passes argv directly to Zellij instead of printing the
+full prompt command as a manual shell command.
 
 ## Open Command Contract
 
