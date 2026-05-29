@@ -44,6 +44,20 @@ export async function createWorktree(
   }
 }
 
+export async function removeWorktree(repo: string, worktree: string, force = false): Promise<void> {
+  const args = ["worktree", "remove"];
+  if (force) {
+    args.push("--force");
+  }
+  args.push(worktree);
+  const result = await git(repo, args);
+  if (result.code !== 0) {
+    throw new UserFacingError(
+      `git worktree remove failed for ${worktree}: ${result.stderr.trim()}`,
+    );
+  }
+}
+
 export async function diffPatch(worktree: string): Promise<string> {
   const tracked = await git(worktree, ["diff", "--binary"]);
   const untracked = await git(worktree, ["ls-files", "--others", "--exclude-standard"]);

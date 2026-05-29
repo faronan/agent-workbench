@@ -17,6 +17,8 @@ cc-fork-matrix report ../.cc-fork-matrix/my-run/runs/20260526T200000
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract --json
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --terminal ghostty --layout tabs --dry-run
+cc-fork-matrix cleanup ../.cc-fork-matrix/my-run/runs/20260526T200000 --dry-run
+cc-fork-matrix cleanup ../.cc-fork-matrix/my-run/runs/20260526T200000
 ```
 
 From agents, use the bundled skill templates:
@@ -206,10 +208,26 @@ commands to run yourself.
 Zellij is supported by terminal launch mode. It is not part of the per-variant
 `open` command contract. tmux is not a target launcher.
 
+## Cleanup
+
+`cc-fork-matrix cleanup <run-dir>` removes worktrees recorded in that run's
+`metadata.json`:
+
+```bash
+cc-fork-matrix cleanup <run-dir> --dry-run
+cc-fork-matrix cleanup <run-dir>
+```
+
+Cleanup is metadata-scoped and refuses dirty worktrees by default. Use `--force`
+only when you intentionally want to discard uncommitted variant changes. Cleanup
+does not delete branches or the run artifact directory.
+
 ## Safety
 
 - No automatic `git commit`, `git push`, `git merge`, `git rebase`, or destructive
   cleanup.
+- `cleanup` removes only metadata-listed worktrees and refuses dirty worktrees
+  unless `--force` is set.
 - Dirty base repos stop the run unless `--allow-dirty-base` or
   `run.dirtyBase: allow` is set.
 - Raw transcripts and raw prompts are not copied to the ledger.

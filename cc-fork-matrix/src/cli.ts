@@ -1,5 +1,6 @@
 #!/usr/bin/env -S node --experimental-strip-types
 import { resolve } from "node:path";
+import { cleanupRun, renderCleanupResult } from "./cleanup.ts";
 import { UserFacingError } from "./errors.ts";
 import { launchDryRunJson, renderLaunchDryRun } from "./launch.ts";
 import { parseMatrixText, readMatrixFile } from "./matrix.ts";
@@ -23,6 +24,7 @@ Usage:
   cc-fork-matrix status <run-dir>
   cc-fork-matrix open <run-dir> [--variant <name>] [--json]
   cc-fork-matrix open <run-dir> --terminal ghostty [--layout tabs|splits] [--variant <name>] [--dry-run]
+  cc-fork-matrix cleanup <run-dir> [--dry-run] [--force] [--json]
   cc-fork-matrix schema
 
 Options:
@@ -35,6 +37,7 @@ Options:
   --allow-dirty-base
   --fail-fast
   --no-verify
+  --force
   --stdin
   --format <yaml|toml|json>
   --json
@@ -114,6 +117,9 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--no-verify":
         options.noVerify = true;
+        break;
+      case "--force":
+        options.force = true;
         break;
       case "--stdin":
         options.stdin = true;
@@ -215,6 +221,19 @@ async function main(argv: string[]): Promise<number> {
         layout: options.layout,
         dryRun: options.dryRun,
       }),
+    );
+    return 0;
+  }
+  if (options.command === "cleanup") {
+    if (!options.matrixPath) {
+      throw new UserFacingError("cleanup requires <run-dir>.");
+    }
+    const result = await cleanupRun(resolve(options.matrixPath), {
+      dryRun: options.dryRun,
+      force: options.force,
+    });
+    process.stdout.write(
+      options.json ? `${JSON.stringify(result, null, 2)}\n` : renderCleanupResult(result),
     );
     return 0;
   }

@@ -74,6 +74,7 @@ export interface CliOptions {
   allowDirtyBase?: boolean;
   failFast?: boolean;
   noVerify?: boolean;
+  force?: boolean;
   json?: boolean;
   dryRun?: boolean;
   launch?: boolean;

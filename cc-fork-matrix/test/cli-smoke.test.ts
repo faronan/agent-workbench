@@ -175,6 +175,20 @@ test("status prints valid metadata through the CLI", async () => {
   });
 });
 
+test("cleanup dry-run prints structured metadata-scoped results", async () => {
+  await withRunDir(validMetadata(), async ({ runDir }) => {
+    const result = await runCli(["cleanup", runDir, "--dry-run", "--json"]);
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.runDir, runDir);
+    assert.equal(payload.dryRun, true);
+    assert.equal(payload.variants[0].name, "A");
+    assert.equal(payload.variants[0].status, "missing");
+  });
+});
+
 test("run launch dry-run prints Ghostty launch targets without prompt text", async () => {
   const repo = await tempRepo();
   try {
