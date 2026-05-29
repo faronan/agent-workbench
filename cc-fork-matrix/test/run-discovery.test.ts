@@ -14,7 +14,12 @@ import type { RunMetadata, VariantResult } from "../src/types.ts";
 
 async function tempRepo() {
   const root = await mkdtemp(join(tmpdir(), "ccfm-discovery-"));
-  const repo = join(root, "repo");
+  const repo = await createRepo(root, "repo");
+  return { root, repo };
+}
+
+async function createRepo(root: string, name: string): Promise<string> {
+  const repo = join(root, name);
   await mkdir(repo, { recursive: true });
   await runCommand("git", ["init"], repo);
   await writeFile(join(repo, "README.md"), "hello\n");
@@ -24,7 +29,7 @@ async function tempRepo() {
     ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"],
     repo,
   );
-  return { root, repo };
+  return repo;
 }
 
 function variant(slug: string, status: VariantResult["status"]): VariantResult {
@@ -201,5 +206,49 @@ test("listRuns includes latest pointer runs outside the default state root", asy
     assert.equal(runs[0].runDir, await realpath(runDir));
   } finally {
     await rm(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("listRuns and --last ignore sibling repository runs in a shared state root", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ccfm-discovery-siblings-"));
+  try {
+    const repoA = await createRepo(root, "repo-a");
+    const repoB = await createRepo(root, "repo-b");
+    const stateRoot = defaultGlobalStateRoot(repoA);
+    const repoARunDir = join(stateRoot, "demo", "runs", "repo-a-old");
+    const repoBRunDir = join(stateRoot, "demo", "runs", "repo-b-new");
+
+    await writeRun({
+      repo: repoA,
+      runDir: repoARunDir,
+      runId: "repo-a-old",
+      name: "demo",
+      updatedAt: "2026-05-29T00:00:00.000Z",
+      statuses: ["succeeded"],
+    });
+    const repoBMetadata = await writeRun({
+      repo: repoB,
+      runDir: repoBRunDir,
+      runId: "repo-b-new",
+      name: "demo",
+      updatedAt: "2026-05-29T01:00:00.000Z",
+      statuses: ["running"],
+    });
+    await writeLatestPointers({
+      repoRoot: repoB,
+      stateRoot,
+      runDir: repoBRunDir,
+      metadata: repoBMetadata,
+    });
+
+    const runs = await listRuns({ repo: repoA });
+
+    assert.deepEqual(
+      runs.map((run) => run.runId),
+      ["repo-a-old"],
+    );
+    assert.equal(await resolveLastRunDir({ repo: repoA }), await realpath(repoARunDir));
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });

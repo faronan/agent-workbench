@@ -144,6 +144,40 @@ test("finalize marks changed running variants as succeeded when no verification 
   }
 });
 
+test("finalize includes staged-only new files", async () => {
+  const repo = await tempRepo();
+  try {
+    await writeRunMetadata(repo);
+    await writeFile(join(repo.worktree, "staged.txt"), "staged\n");
+    await runCommand("git", ["add", "staged.txt"], repo.worktree);
+
+    const result = await finalizeRun(repo.runDir);
+
+    assert.equal(result.variants[0].status, "succeeded");
+    assert.deepEqual(result.variants[0].changedFiles, ["staged.txt"]);
+    assert.match(await readFile(join(repo.runDir, "option-a", "diff.patch"), "utf8"), /staged/);
+  } finally {
+    await rm(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("finalize includes staged-only modifications", async () => {
+  const repo = await tempRepo();
+  try {
+    await writeRunMetadata(repo);
+    await writeFile(join(repo.worktree, "README.md"), "hello\nchanged\n");
+    await runCommand("git", ["add", "README.md"], repo.worktree);
+
+    const result = await finalizeRun(repo.runDir);
+
+    assert.equal(result.variants[0].status, "succeeded");
+    assert.deepEqual(result.variants[0].changedFiles, ["README.md"]);
+    assert.match(await readFile(join(repo.runDir, "option-a", "diff.patch"), "utf8"), /changed/);
+  } finally {
+    await rm(repo.root, { recursive: true, force: true });
+  }
+});
+
 test("finalize marks unchanged running variants as skipped", async () => {
   const repo = await tempRepo();
   try {

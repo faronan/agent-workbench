@@ -88,12 +88,38 @@ async function readLatestPointer(path: string): Promise<LatestPointer | undefine
   try {
     const value = JSON.parse(await readFile(path, "utf8")) as Partial<LatestPointer>;
     if (value.schemaVersion === 1 && typeof value.runDir === "string") {
-      return { schemaVersion: 1, runDir: value.runDir };
+      return {
+        schemaVersion: 1,
+        runDir: value.runDir,
+        runId: typeof value.runId === "string" ? value.runId : undefined,
+        name: typeof value.name === "string" ? value.name : undefined,
+        updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : undefined,
+        repoRoot: typeof value.repoRoot === "string" ? value.repoRoot : undefined,
+      };
     }
   } catch {
     return undefined;
   }
   return undefined;
+}
+
+async function realpathOrUndefined(path: string): Promise<string | undefined> {
+  try {
+    return await realpath(path);
+  } catch {
+    return undefined;
+  }
+}
+
+async function pathMatchesRepo(path: string, expectedRepoRoot: string): Promise<boolean> {
+  return (await realpathOrUndefined(path)) === expectedRepoRoot;
+}
+
+async function metadataMatchesRepo(
+  metadata: RunMetadata,
+  expectedRepoRoot: string,
+): Promise<boolean> {
+  return pathMatchesRepo(metadata.repoRoot, expectedRepoRoot);
 }
 
 async function candidateRunDirsFromRunsDir(runsDir: string): Promise<string[]> {
@@ -120,9 +146,15 @@ async function candidateRunDirs(base: string): Promise<string[]> {
   return [...direct, ...nested.flat()];
 }
 
-async function readRunListItem(runDir: string): Promise<RunListItem | undefined> {
+async function readRunListItem(
+  runDir: string,
+  expectedRepoRoot: string,
+): Promise<RunListItem | undefined> {
   try {
     const metadata = await readMetadata(resolve(runDir, "metadata.json"));
+    if (!(await metadataMatchesRepo(metadata, expectedRepoRoot))) {
+      return undefined;
+    }
     const statusCounts: Partial<Record<VariantStatus, number>> = {};
     for (const variant of metadata.variants) {
       statusCounts[variant.status] = (statusCounts[variant.status] ?? 0) + 1;
@@ -153,6 +185,7 @@ async function readRunListItem(runDir: string): Promise<RunListItem | undefined>
 
 export async function listRuns(options: RunDiscoveryOptions = {}): Promise<RunListItem[]> {
   const repoRoot = await resolveRepoRoot(options);
+  const expectedRepoRoot = await realpath(repoRoot);
   const bases = new Set([defaultGlobalStateRoot(repoRoot)]);
   if (options.stateRoot) {
     bases.add(resolve(repoRoot, options.stateRoot));
@@ -164,14 +197,15 @@ export async function listRuns(options: RunDiscoveryOptions = {}): Promise<RunLi
       runDirs.add(resolve(pointer.runDir));
     }
   }
-  const runs = (await Promise.all([...runDirs].map((runDir) => readRunListItem(runDir)))).filter(
-    (run): run is RunListItem => Boolean(run),
-  );
+  const runs = (
+    await Promise.all([...runDirs].map((runDir) => readRunListItem(runDir, expectedRepoRoot)))
+  ).filter((run): run is RunListItem => Boolean(run));
   return runs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function resolveLastRunDir(options: RunDiscoveryOptions = {}): Promise<string> {
   const repoRoot = await resolveRepoRoot(options);
+  const expectedRepoRoot = await realpath(repoRoot);
   const stateRoot = options.stateRoot
     ? resolve(repoRoot, options.stateRoot)
     : defaultGlobalStateRoot(repoRoot);
@@ -183,9 +217,18 @@ export async function resolveLastRunDir(options: RunDiscoveryOptions = {}): Prom
     if (!pointer) {
       continue;
     }
+    if (pointer.repoRoot) {
+      const pointerRepoRoot = await realpathOrUndefined(pointer.repoRoot);
+      if (pointerRepoRoot && pointerRepoRoot !== expectedRepoRoot) {
+        continue;
+      }
+    }
     const runDir = resolve(pointer.runDir);
     try {
-      await readMetadata(resolve(runDir, "metadata.json"));
+      const metadata = await readMetadata(resolve(runDir, "metadata.json"));
+      if (!(await metadataMatchesRepo(metadata, expectedRepoRoot))) {
+        continue;
+      }
       return realpath(runDir);
     } catch {
       // Fall back to scan below.
