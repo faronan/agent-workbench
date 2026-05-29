@@ -3,7 +3,8 @@ import { dirname, resolve } from "node:path";
 import { UserFacingError } from "./errors.ts";
 import { repoRoot as findRepoRoot, pathExists } from "./git.ts";
 import { readMetadata } from "./metadata.ts";
-import type { CliOptions, RunMetadata, VariantStatus } from "./types.ts";
+import type { AskQuestionStatus, CliOptions, RunMetadata, VariantStatus } from "./types.ts";
+import { isAskRunMetadata } from "./types.ts";
 
 interface LatestPointer {
   schemaVersion: 1;
@@ -20,15 +21,16 @@ export interface RunDiscoveryOptions {
 }
 
 export interface RunListItem {
+  kind: "matrix-run" | "ask-run";
   runId: string;
   name: string;
   createdAt: string;
   updatedAt: string;
   runDir: string;
   backend: RunMetadata["source"]["backend"];
-  terminal?: NonNullable<RunMetadata["launch"]>["terminal"];
-  layout?: NonNullable<RunMetadata["launch"]>["layout"];
-  statusCounts: Partial<Record<VariantStatus, number>>;
+  terminal?: "ghostty" | "zellij";
+  layout?: "tabs" | "splits";
+  statusCounts: Partial<Record<VariantStatus | AskQuestionStatus, number>>;
   variants: Array<{
     name: string;
     slug: string;
@@ -36,6 +38,13 @@ export interface RunListItem {
     branch: string;
     worktree: string;
     changedFiles: string[];
+  }>;
+  questions?: Array<{
+    name: string;
+    slug: string;
+    status: AskQuestionStatus;
+    questionSha256: string;
+    answerSummaryPath: string;
   }>;
 }
 
@@ -155,11 +164,36 @@ async function readRunListItem(
     if (!(await metadataMatchesRepo(metadata, expectedRepoRoot))) {
       return undefined;
     }
+    if (isAskRunMetadata(metadata)) {
+      const statusCounts: Partial<Record<AskQuestionStatus, number>> = {};
+      for (const question of metadata.questions) {
+        statusCounts[question.status] = (statusCounts[question.status] ?? 0) + 1;
+      }
+      return {
+        kind: "ask-run",
+        runId: metadata.runId,
+        name: metadata.name,
+        createdAt: metadata.createdAt,
+        updatedAt: metadata.updatedAt,
+        runDir: await realpath(runDir),
+        backend: metadata.source.backend,
+        statusCounts,
+        variants: [],
+        questions: metadata.questions.map((question) => ({
+          name: question.name,
+          slug: question.slug,
+          status: question.status,
+          questionSha256: question.questionSha256,
+          answerSummaryPath: question.answerSummaryPath,
+        })),
+      };
+    }
     const statusCounts: Partial<Record<VariantStatus, number>> = {};
     for (const variant of metadata.variants) {
       statusCounts[variant.status] = (statusCounts[variant.status] ?? 0) + 1;
     }
     return {
+      kind: "matrix-run",
       runId: metadata.runId,
       name: metadata.name,
       createdAt: metadata.createdAt,

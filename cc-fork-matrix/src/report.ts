@@ -1,7 +1,8 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { readMetadata } from "./metadata.ts";
-import type { RunMetadata, VariantResult } from "./types.ts";
+import type { AskQuestionResult, RunMetadata, VariantResult } from "./types.ts";
+import { isAskRunMetadata } from "./types.ts";
 
 function tableRow(cells: string[]): string {
   return `| ${cells.map((cell) => cell.replace(/\n/g, "<br>")).join(" | ")} |`;
@@ -58,11 +59,84 @@ function variantSummary(variant: VariantResult): string {
     .join("\n");
 }
 
+function askSessionText(question: AskQuestionResult): string {
+  if (question.sessionId) {
+    return question.sessionId;
+  }
+  if (question.sessionIdAvailability === "unavailable") {
+    return question.sessionIdUnavailableReason
+      ? `unavailable (${question.sessionIdUnavailableReason})`
+      : "unavailable";
+  }
+  return "unavailable";
+}
+
+function askQuestionSummary(question: AskQuestionResult, answerSummary?: string): string {
+  return [
+    `# ${question.name}`,
+    "",
+    `- Status: ${question.status}`,
+    `- Question hash: ${question.questionSha256}`,
+    `- Session: ${askSessionText(question)}`,
+    "",
+    "## Answer Summary",
+    "",
+    answerSummary ?? "Not saved.",
+    "",
+    question.error ? `## Error\n\n${question.error}\n` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 export async function writeVariantSummary(path: string, variant: VariantResult): Promise<void> {
   await writeFile(path, `${variantSummary(variant)}\n`);
 }
 
+export async function writeAskQuestionSummary(
+  path: string,
+  question: AskQuestionResult,
+  answerSummary?: string,
+): Promise<void> {
+  await writeFile(path, `${askQuestionSummary(question, answerSummary)}\n`);
+}
+
+function renderAskReport(metadata: RunMetadata): string {
+  if (!isAskRunMetadata(metadata)) {
+    throw new Error("renderAskReport requires ask metadata");
+  }
+  const lines = [
+    `# cc-fork-matrix ask report: ${metadata.name}`,
+    "",
+    `- Run ID: ${metadata.runId}`,
+    `- Source: ${metadata.source.backend} ${metadata.source.session}`,
+    `- Repo: ${metadata.repoRoot}`,
+    `- Answer policy: ${metadata.answerPolicy}`,
+    `- Save answers: ${metadata.saveAnswers ? "yes" : "no"}`,
+    "",
+    tableRow(["Question", "Status", "Session", "Summary", "Question hash", "Error"]),
+    tableRow(["---", "---", "---", "---", "---", "---"]),
+  ];
+  for (const question of metadata.questions) {
+    lines.push(
+      tableRow([
+        question.name,
+        question.status,
+        askSessionText(question),
+        question.answerSummaryPath,
+        question.questionSha256,
+        question.error ?? "",
+      ]),
+    );
+  }
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+}
+
 export function renderReport(metadata: RunMetadata): string {
+  if (isAskRunMetadata(metadata)) {
+    return renderAskReport(metadata);
+  }
   const lines = [
     `# cc-fork-matrix report: ${metadata.name}`,
     "",

@@ -9,6 +9,7 @@ import {
 } from "./ghostty.ts";
 import { readMetadata } from "./metadata.ts";
 import type { GhosttyLayout, TerminalLauncher, VariantResult } from "./types.ts";
+import { isAskRunMetadata } from "./types.ts";
 
 interface OpenOptions {
   json?: boolean;
@@ -64,6 +65,9 @@ export async function printOpenCommand(
   options: OpenOptions = {},
 ): Promise<string> {
   const metadata = await readMetadata(resolve(runDir, "metadata.json"));
+  if (isAskRunMetadata(metadata)) {
+    throw new UserFacingError("open is not supported for ask runs. Use status or report instead.");
+  }
   const variants = variantName
     ? metadata.variants.filter(
         (variant) => variant.name === variantName || variant.slug === variantName,

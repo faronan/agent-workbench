@@ -13,6 +13,7 @@ const VARIANT_STATUSES = [
   "interrupted",
   "skipped",
 ];
+const ASK_QUESTION_STATUSES = ["pending", "running", "succeeded", "failed", "interrupted"];
 const OPEN_COMMAND_KINDS = ["resume-session", "open-worktree", "unavailable"];
 const SESSION_ID_AVAILABILITIES = ["captured", "unavailable"];
 const TERMINAL_LAUNCHERS = ["ghostty", "zellij"];
@@ -257,6 +258,16 @@ function assertVariantResult(value: unknown, context: string): void {
   assertOptionalString(variant, "error", context);
 }
 
+function assertOptionalBackendSignal(
+  object: Record<string, unknown>,
+  key: string,
+  context: string,
+): void {
+  if (hasOwn(object, key) && typeof object[key] !== "string" && object[key] !== null) {
+    invalidMetadata(`${context}.${key} must be a string or null`);
+  }
+}
+
 function assertLaunchMetadata(value: unknown, context: string): void {
   const launch = requireObject(value, context);
   const mode = requireOneOf(launch, "mode", ["terminal"], context);
@@ -273,10 +284,74 @@ function assertLaunchMetadata(value: unknown, context: string): void {
   }
 }
 
-export function assertRunMetadata(value: unknown): asserts value is RunMetadata {
+function assertAskQuestionResult(value: unknown, context: string): void {
+  const question = requireObject(value, context);
+  requireString(question, "name", context);
+  requireString(question, "slug", context);
+  requireOneOf(question, "status", ASK_QUESTION_STATUSES, context);
+  requireString(question, "questionSha256", context);
+  requireOneOf(question, "backend", BACKEND_IDS, context);
+  requireString(question, "artifactDir", context);
+  requireString(question, "answerSummaryPath", context);
+  assertOptionalString(question, "sessionId", context);
+  assertOptionalString(question, "startedAt", context);
+  assertOptionalString(question, "finishedAt", context);
+  if (hasOwn(question, "durationMs")) {
+    requireNumber(question, "durationMs", context);
+  }
+  assertOptionalNumberOrNull(question, "backendExitCode", context);
+  assertOptionalBackendSignal(question, "backendSignal", context);
+  assertOptionalSessionIdAvailability(question, "sessionIdAvailability", context);
+  assertOptionalString(question, "sessionIdUnavailableReason", context);
+  assertOptionalString(question, "error", context);
+}
+
+function assertAskRunMetadata(value: unknown): void {
   const metadata = requireObject(value, "metadata");
   if (metadata.schemaVersion !== 1) {
     invalidMetadata("metadata.schemaVersion must be 1");
+  }
+  const kind = requireString(metadata, "kind", "metadata");
+  if (kind !== "ask-run") {
+    invalidMetadata("metadata.kind must be ask-run");
+  }
+  requireString(metadata, "toolVersion", "metadata");
+  requireString(metadata, "runId", "metadata");
+  requireString(metadata, "name", "metadata");
+  requireString(metadata, "createdAt", "metadata");
+  requireString(metadata, "updatedAt", "metadata");
+  requireString(metadata, "repoRoot", "metadata");
+  const source = requireObject(metadata.source, "metadata.source");
+  requireOneOf(source, "backend", BACKEND_IDS, "metadata.source");
+  requireString(source, "session", "metadata.source");
+  if (hasOwn(source, "resolvedFrom")) {
+    requireOneOf(source, "resolvedFrom", ["explicit", "env"], "metadata.source");
+  }
+  if (hasOwn(source, "env")) {
+    requireOneOf(source, "env", ["CLAUDE_CODE_SESSION_ID"], "metadata.source");
+  }
+  requireString(metadata, "inputHash", "metadata");
+  const answerPolicy = requireString(metadata, "answerPolicy", "metadata");
+  if (answerPolicy !== "final-summary-only") {
+    invalidMetadata("metadata.answerPolicy must be final-summary-only");
+  }
+  requireBoolean(metadata, "saveAnswers", "metadata");
+  const questions = requireArray(metadata, "questions", "metadata");
+  for (const [index, question] of questions.entries()) {
+    assertAskQuestionResult(question, `metadata.questions[${index}]`);
+  }
+}
+
+function assertMatrixRunMetadata(value: unknown): void {
+  const metadata = requireObject(value, "metadata");
+  if (metadata.schemaVersion !== 1) {
+    invalidMetadata("metadata.schemaVersion must be 1");
+  }
+  if (hasOwn(metadata, "kind")) {
+    const kind = requireString(metadata, "kind", "metadata");
+    if (kind !== "matrix-run") {
+      invalidMetadata("metadata.kind must be matrix-run or ask-run");
+    }
   }
   requireString(metadata, "toolVersion", "metadata");
   requireString(metadata, "runId", "metadata");
@@ -305,4 +380,13 @@ export function assertRunMetadata(value: unknown): asserts value is RunMetadata 
   for (const [index, variant] of variants.entries()) {
     assertVariantResult(variant, `metadata.variants[${index}]`);
   }
+}
+
+export function assertRunMetadata(value: unknown): asserts value is RunMetadata {
+  const metadata = requireObject(value, "metadata");
+  if (metadata.kind === "ask-run") {
+    assertAskRunMetadata(value);
+    return;
+  }
+  assertMatrixRunMetadata(value);
 }

@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import test, { before } from "node:test";
 import { fileURLToPath } from "node:url";
 import { runCommand } from "../src/shell.ts";
-import type { RunMetadata } from "../src/types.ts";
+import type { AskRunMetadata, RunMetadata } from "../src/types.ts";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cliPath = join(packageRoot, "dist", "cli.js");
@@ -75,6 +75,40 @@ function validMetadata(): RunMetadata {
         diffstat: "",
         changedFiles: [],
         artifactDir: "/artifact/a",
+      },
+    ],
+  };
+}
+
+function validAskMetadata(runDir: string): AskRunMetadata {
+  return {
+    schemaVersion: 1,
+    kind: "ask-run",
+    toolVersion: "0.1.0",
+    runId: "ask-run",
+    name: "ask demo",
+    createdAt: "2026-05-30T00:00:00.000Z",
+    updatedAt: "2026-05-30T00:00:00.000Z",
+    repoRoot: "/repo",
+    source: {
+      backend: "claude-cli",
+      session: "source",
+      resolvedFrom: "explicit",
+    },
+    inputHash: "hash",
+    answerPolicy: "final-summary-only",
+    saveAnswers: true,
+    questions: [
+      {
+        name: "Contract",
+        slug: "contract",
+        status: "succeeded",
+        questionSha256: "question-hash",
+        backend: "claude-cli",
+        artifactDir: join(runDir, "contract"),
+        answerSummaryPath: join(runDir, "contract", "summary.md"),
+        sessionIdAvailability: "unavailable",
+        sessionIdUnavailableReason: "test",
       },
     ],
   };
@@ -481,6 +515,54 @@ variants:
   } finally {
     await rm(repo, { recursive: true, force: true });
   }
+});
+
+test("ask dry-run reads questions from stdin as json without question text", async () => {
+  const repo = await tempRepo();
+  try {
+    const result = await runCli(
+      ["ask", "--stdin", "--format", "yaml", "--source", "source-session", "--dry-run", "--json"],
+      `
+version: 1
+name: stdin-ask
+repo: ${repo}
+questions:
+  - name: contract
+    question: hidden ask prompt
+`,
+    );
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.kind, "ask-run");
+    assert.equal(payload.source.session, "source-session");
+    assert.equal(payload.questions[0].name, "contract");
+    assert.equal(typeof payload.questions[0].questionSha256, "string");
+    assert.doesNotMatch(result.stdout, /hidden ask prompt/);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("built CLI status and report accept ask run metadata", async () => {
+  await withRunDir({}, async ({ runDir }) => {
+    await writeFile(
+      join(runDir, "metadata.json"),
+      `${JSON.stringify(validAskMetadata(runDir), null, 2)}\n`,
+    );
+
+    const status = await runCli(["status", runDir]);
+    assert.equal(status.code, 0);
+    assert.equal(status.stderr, "");
+    assert.equal(JSON.parse(status.stdout).kind, "ask-run");
+
+    const report = await runCli(["report", runDir]);
+    assert.equal(report.code, 0);
+    assert.equal(report.stderr, "");
+    assert.match(report.stdout, /cc-fork-matrix ask report/);
+    assert.match(report.stdout, /question-hash/);
+  });
 });
 
 test("run launch requires a terminal", async () => {
