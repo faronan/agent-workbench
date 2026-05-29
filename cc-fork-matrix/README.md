@@ -6,16 +6,34 @@ diffs, metadata, and a comparison report without copying raw transcripts or prom
 
 ## Quick Start
 
-During local development in this checkout, use the repository-local Node command:
+`cc-fork-matrix` is a local clone + build tool. npm publish is not required for
+the current workflow, and the normal invocation is `cc-fork-matrix ...` from
+your shell PATH.
 
 ```bash
-node --experimental-strip-types /Users/toshiki.ito/ghq/github.com/faronan/agent-workbench/cc-fork-matrix/src/cli.ts --help
+pnpm --dir cc-fork-matrix install-local
+cc-fork-matrix --help
 ```
 
-The examples below use `cc-fork-matrix` for readability. Until the tool is
-packaged or wrapped on PATH, replace `cc-fork-matrix` with the repository-local
-Node command above. A future packaged CLI, wrapper, and skill sync flow should
-replace only that command surface.
+On another Mac, clone this repository through `ghq` and run the same
+`install-local` command. It installs dependencies, builds `dist/cli.js`, places
+the wrapper at `~/.local/bin/cc-fork-matrix`, and runs a `--help` smoke test.
+The wrapper resolves the clone with
+`ghq list -p github.com/faronan/agent-workbench` and runs
+`node <repo>/cc-fork-matrix/dist/cli.js`.
+
+If `dist/cli.js` is missing, rebuild it:
+
+```bash
+pnpm --dir cc-fork-matrix build
+```
+
+For development-only debugging of the TypeScript source, maintainers can still
+run `node --experimental-strip-types src/cli.ts ...` from `cc-fork-matrix/`, but
+that is not the installed CLI surface.
+
+P1 Run-level Group Launcher is a follow-up task and is not implemented in this
+surface-stabilization step.
 
 ```bash
 cc-fork-matrix dry-run matrix.yaml
