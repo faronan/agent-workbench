@@ -9,6 +9,7 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "check": "pnpm test && pnpm typecheck && pnpm lint && pnpm build",
+    "install-local": "sh scripts/install-local-cli.sh",
     "lint": "biome check .",
     "test": "node --experimental-strip-types --test \"test/**/*.test.ts\"",
     "typecheck": "node --experimental-strip-types scripts/typecheck.mjs"

@@ -11,17 +11,16 @@ the current workflow, and the normal invocation is `cc-fork-matrix ...` from
 your shell PATH.
 
 ```bash
-pnpm --dir cc-fork-matrix install
-pnpm --dir cc-fork-matrix build
-mkdir -p ~/.local/bin
-cp cc-fork-matrix/bin/cc-fork-matrix ~/.local/bin/cc-fork-matrix
+pnpm --dir cc-fork-matrix install-local
 cc-fork-matrix --help
 ```
 
-On another Mac, clone this repository through `ghq`, run the same install/build
-commands, and place the wrapper at `~/.local/bin/cc-fork-matrix`. The wrapper
-resolves the clone with `ghq list -p github.com/faronan/agent-workbench` and
-runs `node <repo>/cc-fork-matrix/dist/cli.js`.
+On another Mac, clone this repository through `ghq` and run the same
+`install-local` command. It installs dependencies, builds `dist/cli.js`, places
+the wrapper at `~/.local/bin/cc-fork-matrix`, and runs a `--help` smoke test.
+The wrapper resolves the clone with
+`ghq list -p github.com/faronan/agent-workbench` and runs
+`node <repo>/cc-fork-matrix/dist/cli.js`.
 
 If `dist/cli.js` is missing, rebuild it:
 
