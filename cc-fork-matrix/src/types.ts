@@ -77,8 +77,12 @@ export interface CliOptions {
   force?: boolean;
   json?: boolean;
   dryRun?: boolean;
+  last?: boolean;
   launch?: boolean;
   variant?: string;
+  exceptVariant?: string;
+  deleteBranches?: boolean;
+  deleteRunDir?: boolean;
   terminal?: TerminalLauncher;
   layout?: LaunchLayout;
 }
@@ -195,6 +199,15 @@ export interface VerificationResult {
   durationMs: number;
 }
 
+export interface RunLaunchMetadata {
+  mode: "terminal";
+  terminal: TerminalLauncher;
+  layout: "tabs" | "splits";
+  launchedAt: string;
+  launcherStrategy: "ghostty-command-env" | "zellij-new-tab-argv";
+  promptStoragePolicy: "not-persisted";
+}
+
 export interface VariantResult {
   name: string;
   slug: string;
@@ -211,9 +224,11 @@ export interface VariantResult {
   sessionIdUnavailableReason?: string;
   openCommand: VariantOpenCommand;
   verification: VerificationResult[];
+  verificationCommands: VerificationCommand[];
   diffstat: string;
   changedFiles: string[];
   artifactDir: string;
+  finalizedAt?: string;
   error?: string;
 }
 
@@ -236,5 +251,6 @@ export interface RunMetadata {
   matrixHash: string;
   dirtyBase: boolean;
   dirtyBaseStatus: string;
+  launch?: RunLaunchMetadata;
   variants: VariantResult[];
 }

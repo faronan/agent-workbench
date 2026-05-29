@@ -2,11 +2,13 @@
 import { resolve } from "node:path";
 import { cleanupRun, renderCleanupResult } from "./cleanup.ts";
 import { UserFacingError } from "./errors.ts";
+import { finalizeRun } from "./finalize.ts";
 import { launchDryRunJson, renderLaunchDryRun } from "./launch.ts";
 import { parseMatrixText, readMatrixFile } from "./matrix.ts";
 import { printOpenCommand } from "./open.ts";
 import { regenerateReport } from "./report.ts";
 import { resolveRun } from "./resolve.ts";
+import { listRuns, resolveRunDirFromCli } from "./run-discovery.ts";
 import { dryRunJson, launchMatrix, renderDryRun, runMatrix } from "./runner.ts";
 import { MATRIX_SCHEMA } from "./schema.ts";
 import { printStatus } from "./status.ts";
@@ -21,10 +23,15 @@ Usage:
   cc-fork-matrix run --stdin --format yaml
   cc-fork-matrix dry-run <matrix.yaml|--stdin>
   cc-fork-matrix report <run-dir>
+  cc-fork-matrix report --last
   cc-fork-matrix status <run-dir>
+  cc-fork-matrix status --last [--json]
+  cc-fork-matrix list --json
+  cc-fork-matrix finalize <run-dir> [--json]
+  cc-fork-matrix finalize --last [--json]
   cc-fork-matrix open <run-dir> [--variant <name>] [--json]
   cc-fork-matrix open <run-dir> --terminal ghostty [--layout tabs|splits] [--variant <name>] [--dry-run]
-  cc-fork-matrix cleanup <run-dir> [--dry-run] [--force] [--json]
+  cc-fork-matrix cleanup <run-dir|--last> [--variant <name>] [--except <name>] [--dry-run] [--force] [--delete-branches] [--delete-run-dir] [--json]
   cc-fork-matrix schema
 
 Options:
@@ -38,6 +45,11 @@ Options:
   --fail-fast
   --no-verify
   --force
+  --last
+  --variant <name>
+  --except <name>
+  --delete-branches
+  --delete-run-dir
   --stdin
   --format <yaml|toml|json>
   --json
@@ -90,6 +102,9 @@ function parseArgs(argv: string[]): CliOptions {
       case "--variant":
         options.variant = next();
         break;
+      case "--except":
+        options.exceptVariant = next();
+        break;
       case "--terminal": {
         const terminal = next();
         if (terminal !== "ghostty" && terminal !== "zellij") {
@@ -120,6 +135,15 @@ function parseArgs(argv: string[]): CliOptions {
         break;
       case "--force":
         options.force = true;
+        break;
+      case "--last":
+        options.last = true;
+        break;
+      case "--delete-branches":
+        options.deleteBranches = true;
+        break;
+      case "--delete-run-dir":
+        options.deleteRunDir = true;
         break;
       case "--stdin":
         options.stdin = true;
@@ -163,6 +187,9 @@ function parseArgs(argv: string[]): CliOptions {
   if (options.layout && options.command === "open" && options.terminal !== "ghostty") {
     throw new UserFacingError("--layout requires --terminal ghostty.");
   }
+  if (options.last && options.matrixPath) {
+    throw new UserFacingError("--last cannot be combined with an explicit run directory.");
+  }
   return options;
 }
 
@@ -195,19 +222,36 @@ async function main(argv: string[]): Promise<number> {
     process.stdout.write(`${JSON.stringify(MATRIX_SCHEMA, null, 2)}\n`);
     return 0;
   }
-  if (options.command === "report") {
-    if (!options.matrixPath) {
-      throw new UserFacingError("report requires <run-dir>.");
+  if (options.command === "list") {
+    const runs = await listRuns({ repo: options.repo, stateRoot: options.stateRoot });
+    if (options.json) {
+      process.stdout.write(`${JSON.stringify({ runs }, null, 2)}\n`);
+    } else {
+      process.stdout.write(
+        `${runs.map((run) => `${run.updatedAt} ${run.name} ${run.runDir}`).join("\n")}\n`,
+      );
     }
-    const report = await regenerateReport(resolve(options.matrixPath));
+    return 0;
+  }
+  if (options.command === "report") {
+    const runDir = await resolveRunDirFromCli(options);
+    const report = await regenerateReport(runDir);
     process.stdout.write(report);
     return 0;
   }
   if (options.command === "status") {
-    if (!options.matrixPath) {
-      throw new UserFacingError("status requires <run-dir>.");
-    }
-    process.stdout.write(await printStatus(resolve(options.matrixPath)));
+    const runDir = await resolveRunDirFromCli(options);
+    process.stdout.write(await printStatus(runDir));
+    return 0;
+  }
+  if (options.command === "finalize") {
+    const runDir = await resolveRunDirFromCli(options);
+    const result = await finalizeRun(runDir);
+    process.stdout.write(
+      options.json
+        ? `${JSON.stringify(result, null, 2)}\n`
+        : `Finalize complete: ${result.runDir}\n`,
+    );
     return 0;
   }
   if (options.command === "open") {
@@ -225,12 +269,14 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (options.command === "cleanup") {
-    if (!options.matrixPath) {
-      throw new UserFacingError("cleanup requires <run-dir>.");
-    }
-    const result = await cleanupRun(resolve(options.matrixPath), {
+    const runDir = await resolveRunDirFromCli(options);
+    const result = await cleanupRun(runDir, {
       dryRun: options.dryRun,
       force: options.force,
+      variant: options.variant,
+      exceptVariant: options.exceptVariant,
+      deleteBranches: options.deleteBranches,
+      deleteRunDir: options.deleteRunDir,
     });
     process.stdout.write(
       options.json ? `${JSON.stringify(result, null, 2)}\n` : renderCleanupResult(result),

@@ -120,6 +120,10 @@ variants:
     assert.match(captured[0].command.argv[3], /Variant task:\ndo launch a/);
     assert.deepEqual(captured[0].command.argv.slice(-2), ["-C", worktreeA]);
     assert.equal(metadata.variants.length, 2);
+    assert.equal(metadata.launch?.terminal, "zellij");
+    assert.equal(metadata.launch?.layout, "tabs");
+    assert.equal(metadata.launch?.promptStoragePolicy, "not-persisted");
+    assert.doesNotMatch(JSON.stringify(metadata.launch), /node --experimental-strip-types/);
     assert.equal(metadata.variants[0].status, "running");
     assert.equal(metadata.variants[0].sessionId, undefined);
     assert.equal(metadata.variants[0].sessionIdAvailability, "unavailable");
@@ -130,6 +134,7 @@ variants:
     assert.equal(metadata.variants[0].openCommand.kind, "open-worktree");
     assert.deepEqual(metadata.variants[0].openCommand.command.argv, [fakeCodexCommand]);
     assert.deepEqual(metadata.variants[0].verification, []);
+    assert.deepEqual(metadata.variants[0].verificationCommands, []);
     assert.deepEqual(metadata.variants[0].changedFiles, []);
     assert.doesNotMatch(JSON.stringify(metadata), /do launch a/);
     assert.doesNotMatch(JSON.stringify(metadata), /fork source-session/);
@@ -194,6 +199,9 @@ variants:
     assert.match(captured[0].command.argv[6], /Variant task:\ndo claude launch a/);
     assert.equal(captured[0].command.argv.includes("--worktree"), false);
     assert.equal(metadata.variants.length, 1);
+    assert.equal(metadata.launch?.terminal, "ghostty");
+    assert.equal(metadata.launch?.layout, "tabs");
+    assert.equal(metadata.launch?.launcherStrategy, "ghostty-command-env");
     assert.equal(metadata.variants[0].status, "running");
     assert.equal(metadata.variants[0].sessionId, undefined);
     assert.equal(metadata.variants[0].sessionIdAvailability, "unavailable");
@@ -204,6 +212,7 @@ variants:
     assert.equal(metadata.variants[0].openCommand.kind, "open-worktree");
     assert.deepEqual(metadata.variants[0].openCommand.command.argv, [fakeClaudeCommand]);
     assert.deepEqual(metadata.variants[0].verification, []);
+    assert.deepEqual(metadata.variants[0].verificationCommands, []);
     assert.doesNotMatch(JSON.stringify(metadata), /do claude launch a/);
     assert.doesNotMatch(JSON.stringify(metadata), /--resume source-session/);
     assert.doesNotMatch(

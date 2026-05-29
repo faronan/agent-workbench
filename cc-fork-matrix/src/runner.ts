@@ -2,13 +2,19 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createBackend } from "./backend.ts";
 import { UserFacingError } from "./errors.ts";
-import { changedFiles, createWorktree, diffPatch, diffStat, pathExists } from "./git.ts";
-import { buildAgentLaunchTarget, type LaunchMatrixOptions, launchAgentTargets } from "./launch.ts";
+import { createWorktree, pathExists } from "./git.ts";
+import {
+  buildAgentLaunchTarget,
+  type LaunchMatrixOptions,
+  launchAgentTargets,
+  launcherStrategy,
+  normalizedLaunchLayout,
+} from "./launch.ts";
 import { initialMetadata, upsertVariant, writeMetadata } from "./metadata.ts";
 import { buildVariantOpenCommand } from "./open-command.ts";
 import { redact } from "./redaction.ts";
 import { renderReport, writeVariantSummary } from "./report.ts";
-import { runCommand } from "./shell.ts";
+import { writeLatestPointers } from "./run-discovery.ts";
 import type {
   AgentLaunchTarget,
   ResolvedRun,
@@ -16,6 +22,7 @@ import type {
   RunMetadata,
   VariantResult,
 } from "./types.ts";
+import { collectDiff, runVerification } from "./variant-artifacts.ts";
 
 const TOOL_VERSION = "0.1.0";
 export const CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON =
@@ -28,46 +35,6 @@ function launchSessionUnavailableReason(resolved: ResolvedRun): string {
     return CLAUDE_LAUNCH_SESSION_UNAVAILABLE_REASON;
   }
   return CODEX_LAUNCH_SESSION_UNAVAILABLE_REASON;
-}
-
-async function runVerification(variant: ResolvedVariant): Promise<{
-  log: string;
-  results: VariantResult["verification"];
-}> {
-  const logParts: string[] = [];
-  const results: VariantResult["verification"] = [];
-  for (const command of variant.verificationCommands) {
-    const started = Date.now();
-    logParts.push(`$ ${command.command}\n`);
-    const result = await runCommand("sh", ["-lc", command.command], variant.worktree, {
-      timeoutMs: command.timeoutMs,
-    });
-    const durationMs = Date.now() - started;
-    logParts.push(result.stdout);
-    logParts.push(result.stderr);
-    logParts.push(`\n[exit=${result.code} durationMs=${durationMs}]\n\n`);
-    results.push({
-      name: command.name,
-      command: command.command,
-      code: result.code,
-      signal: result.signal,
-      durationMs,
-    });
-  }
-  return { log: redact(logParts.join("")), results };
-}
-
-async function collectDiff(variant: ResolvedVariant): Promise<{
-  diffstat: string;
-  changedFiles: string[];
-  patch: string;
-}> {
-  const [stat, files, patch] = await Promise.all([
-    diffStat(variant.worktree),
-    changedFiles(variant.worktree),
-    diffPatch(variant.worktree),
-  ]);
-  return { diffstat: stat, changedFiles: files, patch };
 }
 
 async function runVariant(args: {
@@ -99,14 +66,17 @@ async function runVariant(args: {
         ? "interrupted"
         : "fork_failed";
   if (backendResult.status === "success" && variant.verificationCommands.length > 0) {
-    const verificationResult = await runVerification(variant);
+    const verificationResult = await runVerification({
+      worktree: variant.worktree,
+      commands: variant.verificationCommands,
+    });
     verification = verificationResult.results;
     verificationLog = verificationResult.log;
     if (verification.some((entry) => entry.code !== 0)) {
       status = "verification_failed";
     }
   }
-  const diff = await collectDiff(variant);
+  const diff = await collectDiff(variant.worktree);
   await writeFile(variant.diffPatchPath, diff.patch);
   await writeFile(variant.verificationLogPath, verificationLog);
   const sessionIdAvailability =
@@ -134,6 +104,7 @@ async function runVariant(args: {
       sessionIdUnavailableReason: backendResult.sessionIdUnavailableReason,
     }),
     verification,
+    verificationCommands: variant.verificationCommands,
     diffstat: diff.diffstat,
     changedFiles: diff.changedFiles,
     artifactDir: variant.artifactDir,
@@ -217,6 +188,7 @@ function terminalLaunchRunningResult(
       sessionIdUnavailableReason,
     }),
     verification: [],
+    verificationCommands: variant.verificationCommands,
     diffstat: "",
     changedFiles: [],
     artifactDir: variant.artifactDir,
@@ -229,6 +201,12 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
   const metadataPath = resolve(resolved.runDir, "metadata.json");
   const metadata = initialRunMetadata(resolved, matrixHash);
   await writeMetadata(metadataPath, metadata);
+  await writeLatestPointers({
+    repoRoot: resolved.repoRoot,
+    stateRoot: resolved.stateRoot,
+    runDir: resolved.runDir,
+    metadata,
+  });
 
   let nextIndex = 0;
   let shouldStop = false;
@@ -259,6 +237,7 @@ export async function runMatrix(resolved: ResolvedRun, matrixHash: string): Prom
           worktree: variant.worktree,
           openCommand: openCommandForForkFailure(resolved, variant),
           verification: [],
+          verificationCommands: variant.verificationCommands,
           diffstat: "",
           changedFiles: [],
           artifactDir: variant.artifactDir,
@@ -296,6 +275,12 @@ export async function launchMatrix(
   const metadataPath = resolve(resolved.runDir, "metadata.json");
   const metadata = initialRunMetadata(resolved, matrixHash);
   await writeMetadata(metadataPath, metadata);
+  await writeLatestPointers({
+    repoRoot: resolved.repoRoot,
+    stateRoot: resolved.stateRoot,
+    runDir: resolved.runDir,
+    metadata,
+  });
 
   const launchedVariants: ResolvedVariant[] = [];
   const targets: AgentLaunchTarget[] = [];
@@ -322,6 +307,7 @@ export async function launchMatrix(
         worktree: variant.worktree,
         openCommand: openCommandForForkFailure(resolved, variant),
         verification: [],
+        verificationCommands: variant.verificationCommands,
         diffstat: "",
         changedFiles: [],
         artifactDir: variant.artifactDir,
@@ -347,6 +333,7 @@ export async function launchMatrix(
           worktree: variant.worktree,
           openCommand: openCommandForForkFailure(resolved, variant),
           verification: [],
+          verificationCommands: variant.verificationCommands,
           diffstat: "",
           changedFiles: [],
           artifactDir: variant.artifactDir,
@@ -357,6 +344,22 @@ export async function launchMatrix(
       await writeFile(resolve(resolved.runDir, "report.md"), renderReport(metadata));
       throw error;
     }
+
+    metadata.launch = {
+      mode: "terminal",
+      terminal: options.terminal,
+      layout: normalizedLaunchLayout(options.terminal, options.layout),
+      launchedAt: new Date().toISOString(),
+      launcherStrategy: launcherStrategy(options.terminal),
+      promptStoragePolicy: "not-persisted",
+    };
+    await writeMetadata(metadataPath, metadata);
+    await writeLatestPointers({
+      repoRoot: resolved.repoRoot,
+      stateRoot: resolved.stateRoot,
+      runDir: resolved.runDir,
+      metadata,
+    });
 
     for (const variant of launchedVariants) {
       await writeVariantResult(

@@ -32,6 +32,15 @@ export async function branchExists(repo: string, branch: string): Promise<boolea
   return result.code === 0;
 }
 
+export async function deleteBranch(repo: string, branch: string, force = false): Promise<void> {
+  const result = await git(repo, ["branch", force ? "-D" : "-d", branch]);
+  if (result.code !== 0) {
+    throw new UserFacingError(
+      `git branch ${force ? "-D" : "-d"} failed for ${branch}: ${result.stderr.trim()}`,
+    );
+  }
+}
+
 export async function createWorktree(
   repo: string,
   branch: string,

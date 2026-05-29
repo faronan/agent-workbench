@@ -70,10 +70,20 @@ function variant(name: string, slug: string, branch: string, worktree: string): 
       },
     },
     verification: [],
+    verificationCommands: [],
     diffstat: "",
     changedFiles: [],
     artifactDir: join(worktree, ".artifact"),
   };
+}
+
+async function branchExists(repo: string, branch: string): Promise<boolean> {
+  const result = await runCommand(
+    "git",
+    ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`],
+    repo,
+  );
+  return result.code === 0;
 }
 
 async function writeMetadata(
@@ -157,6 +167,94 @@ test("cleanup refuses dirty worktrees unless forced", async () => {
     );
     assert.equal(await exists(repo.worktreeA), false);
     assert.equal(await exists(repo.worktreeB), false);
+  } finally {
+    await rm(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup can select a single variant by name or slug", async () => {
+  const repo = await tempRepo();
+  try {
+    const result = await cleanupRun(repo.runDir, { dryRun: true, variant: "option-b" });
+
+    assert.equal(result.variants.length, 1);
+    assert.equal(result.variants[0].slug, "option-b");
+    assert.equal(result.variants[0].status, "would-remove");
+    assert.equal(await exists(repo.worktreeA), true);
+    assert.equal(await exists(repo.worktreeB), true);
+  } finally {
+    await rm(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup can remove every variant except the selected winner", async () => {
+  const repo = await tempRepo();
+  try {
+    const result = await cleanupRun(repo.runDir, { exceptVariant: "option-a" });
+
+    assert.deepEqual(
+      result.variants.map((entry) => entry.slug),
+      ["option-b"],
+    );
+    assert.equal(await exists(repo.worktreeA), true);
+    assert.equal(await exists(repo.worktreeB), false);
+  } finally {
+    await rm(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup rejects conflicting selectors and partial run directory deletion", async () => {
+  const repo = await tempRepo();
+  try {
+    await assert.rejects(
+      () => cleanupRun(repo.runDir, { variant: "option-a", exceptVariant: "option-b" }),
+      /cannot be combined/i,
+    );
+    await assert.rejects(
+      () => cleanupRun(repo.runDir, { variant: "option-a", deleteRunDir: true, dryRun: true }),
+      /delete-run-dir.*all variants/i,
+    );
+  } finally {
+    await rm(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup can delete selected branches after worktree removal", async () => {
+  const repo = await tempRepo();
+  try {
+    const dryRun = await cleanupRun(repo.runDir, {
+      dryRun: true,
+      deleteBranches: true,
+      exceptVariant: "option-a",
+    });
+    assert.equal(dryRun.variants[0].branchStatus, "would-delete");
+    assert.equal(await branchExists(repo.repo, "cleanup/option-b"), true);
+
+    const result = await cleanupRun(repo.runDir, {
+      deleteBranches: true,
+      exceptVariant: "option-a",
+    });
+
+    assert.equal(result.variants[0].branchStatus, "deleted");
+    assert.equal(await branchExists(repo.repo, "cleanup/option-a"), true);
+    assert.equal(await branchExists(repo.repo, "cleanup/option-b"), false);
+  } finally {
+    await rm(repo.root, { recursive: true, force: true });
+  }
+});
+
+test("cleanup can delete the run artifact directory only for full cleanup", async () => {
+  const repo = await tempRepo();
+  try {
+    const result = await cleanupRun(repo.runDir, { deleteRunDir: true, dryRun: true });
+    assert.equal(result.runDirStatus, "would-delete");
+    assert.equal(await exists(repo.runDir), true);
+
+    const removed = await cleanupRun(repo.runDir, { deleteRunDir: true, force: true });
+    assert.equal(removed.runDirStatus, "deleted");
+    assert.equal(await exists(repo.runDir), false);
+
+    assert.match(JSON.stringify(removed), /"runDirStatus":"deleted"/);
   } finally {
     await rm(repo.root, { recursive: true, force: true });
   }

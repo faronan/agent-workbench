@@ -6,6 +6,17 @@ diffs, metadata, and a comparison report without copying raw transcripts or prom
 
 ## Quick Start
 
+During local development in this checkout, use the repository-local Node command:
+
+```bash
+node --experimental-strip-types /Users/toshiki.ito/ghq/github.com/faronan/agent-workbench/cc-fork-matrix/src/cli.ts --help
+```
+
+The examples below use `cc-fork-matrix` for readability. Until the tool is
+packaged or wrapped on PATH, replace `cc-fork-matrix` with the repository-local
+Node command above. A future packaged CLI, wrapper, and skill sync flow should
+replace only that command surface.
+
 ```bash
 cc-fork-matrix dry-run matrix.yaml
 cc-fork-matrix run matrix.yaml
@@ -17,6 +28,11 @@ cc-fork-matrix report ../.cc-fork-matrix/my-run/runs/20260526T200000
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --variant zod-contract --json
 cc-fork-matrix open ../.cc-fork-matrix/my-run/runs/20260526T200000 --terminal ghostty --layout tabs --dry-run
+cc-fork-matrix list --json
+cc-fork-matrix status --last --json
+cc-fork-matrix finalize --last --json
+cc-fork-matrix report --last
+cc-fork-matrix cleanup --last --except zod-contract --dry-run --json
 cc-fork-matrix cleanup ../.cc-fork-matrix/my-run/runs/20260526T200000 --dry-run
 cc-fork-matrix cleanup ../.cc-fork-matrix/my-run/runs/20260526T200000
 ```
@@ -153,6 +169,10 @@ reports, or `open` output. After a successful launch, variant metadata records
 `status: running`, `sessionIdAvailability: unavailable`, and an open-worktree
 fallback command such as `cd <worktree> && <backend-command>`.
 
+Launch metadata records only machine-readable routing fields such as terminal,
+layout, launch strategy, and `promptStoragePolicy: not-persisted`. It does not
+record the command used to invoke `cc-fork-matrix` itself.
+
 `--dry-run` for launch mode prints `promptSha256`, `branch`, `worktree`,
 verification command names, and the launch target. It does not print the raw
 prompt, `codex fork`, or `claude --resume` command.
@@ -211,16 +231,37 @@ Zellij is supported by terminal launch mode. It is not part of the per-variant
 ## Cleanup
 
 `cc-fork-matrix cleanup <run-dir>` removes worktrees recorded in that run's
-`metadata.json`:
+`metadata.json`. `--last` resolves the latest run from `latest.json`, falling
+back to valid metadata scan when the pointer is stale:
 
 ```bash
 cc-fork-matrix cleanup <run-dir> --dry-run
+cc-fork-matrix cleanup --last --except option-a --dry-run --json
 cc-fork-matrix cleanup <run-dir>
 ```
 
 Cleanup is metadata-scoped and refuses dirty worktrees by default. Use `--force`
 only when you intentionally want to discard uncommitted variant changes. Cleanup
-does not delete branches or the run artifact directory.
+does not delete branches or the run artifact directory unless requested with
+`--delete-branches` or `--delete-run-dir`. `--delete-run-dir` is allowed only
+when cleaning all variants.
+
+## Follow-up Lifecycle
+
+Use these commands after `run --launch`:
+
+```bash
+cc-fork-matrix list --json
+cc-fork-matrix status --last --json
+cc-fork-matrix finalize --last --json
+cc-fork-matrix report --last
+cc-fork-matrix cleanup --last --dry-run --json
+```
+
+`finalize` closes `running` launch variants by recollecting diffs and changed
+files, running stored verification commands, updating metadata, and regenerating
+the report. If a running variant has no verification commands, changed worktrees
+become `succeeded` and unchanged worktrees become `skipped`.
 
 ## Safety
 

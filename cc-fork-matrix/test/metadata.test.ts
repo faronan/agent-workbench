@@ -65,6 +65,7 @@ function validMetadata(): RunMetadata {
           },
         },
         verification: [],
+        verificationCommands: [],
         diffstat: "",
         changedFiles: [],
         artifactDir: "/artifact/a",
@@ -175,6 +176,16 @@ test("readMetadata rejects verification results without signal", async () => {
       durationMs: 1,
     },
   ];
+
+  await withMetadataFile(metadata, async ({ metadataPath }) => {
+    await assert.rejects(() => readMetadata(metadataPath), isInvalidMetadataError);
+  });
+});
+
+test("readMetadata rejects variants without verificationCommands", async () => {
+  const metadata = validMetadata() as unknown as Record<string, unknown>;
+  const variants = metadata.variants as Array<Record<string, unknown>>;
+  delete variants[0].verificationCommands;
 
   await withMetadataFile(metadata, async ({ metadataPath }) => {
     await assert.rejects(() => readMetadata(metadataPath), isInvalidMetadataError);

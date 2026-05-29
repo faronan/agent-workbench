@@ -34,6 +34,12 @@ export function normalizedLaunchLayout(
   return layout ?? "tabs";
 }
 
+export function launcherStrategy(
+  terminal: TerminalLauncher,
+): "ghostty-command-env" | "zellij-new-tab-argv" {
+  return terminal === "ghostty" ? "ghostty-command-env" : "zellij-new-tab-argv";
+}
+
 export function buildCodexLaunchTarget(args: {
   matrix: MatrixDefinition;
   sourceSession: string;

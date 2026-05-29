@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -71,6 +71,7 @@ function validMetadata(): RunMetadata {
           },
         },
         verification: [],
+        verificationCommands: [],
         diffstat: "",
         changedFiles: [],
         artifactDir: "/artifact/a",
@@ -135,6 +136,40 @@ async function tempRepo() {
   return dir;
 }
 
+async function withDiscoverableRun(
+  metadata: RunMetadata,
+  fn: (args: { root: string; repo: string; runDir: string }) => Promise<void>,
+): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), "ccfm-cli-discovery-"));
+  const repo = join(root, "repo");
+  const runDir = join(root, ".cc-fork-matrix", "demo", "runs", metadata.runId);
+  try {
+    await mkdir(repo, { recursive: true });
+    await runCommand("git", ["init"], repo);
+    await writeFile(join(repo, "README.md"), "hello\n");
+    await runCommand("git", ["add", "README.md"], repo);
+    await runCommand(
+      "git",
+      ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-m", "init"],
+      repo,
+    );
+    const repoMetadata = structuredClone({ ...metadata, repoRoot: repo });
+    repoMetadata.variants = repoMetadata.variants.map((variant) => ({
+      ...variant,
+      artifactDir: join(runDir, variant.slug),
+    }));
+    await mkdir(runDir, { recursive: true });
+    await writeFile(join(runDir, "metadata.json"), `${JSON.stringify(repoMetadata, null, 2)}\n`);
+    await writeFile(
+      join(root, ".cc-fork-matrix", "latest.json"),
+      `${JSON.stringify({ schemaVersion: 1, runDir }, null, 2)}\n`,
+    );
+    await fn({ root, repo, runDir });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
 async function withMatrixFile(
   text: string,
   fn: (args: { matrixPath: string }) => Promise<void>,
@@ -186,6 +221,72 @@ test("cleanup dry-run prints structured metadata-scoped results", async () => {
     assert.equal(payload.dryRun, true);
     assert.equal(payload.variants[0].name, "A");
     assert.equal(payload.variants[0].status, "missing");
+  });
+});
+
+test("list prints discoverable runs as json", async () => {
+  await withDiscoverableRun(validMetadata(), async ({ repo, runDir }) => {
+    const result = await runCli(["list", "--json", "--repo", repo]);
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.runs[0].runDir, await realpath(runDir));
+    assert.equal(payload.runs[0].name, "demo");
+    assert.equal(payload.runs[0].statusCounts.succeeded, 1);
+  });
+});
+
+test("status, report, cleanup, and finalize resolve --last through the latest pointer", async () => {
+  const metadata = validMetadata();
+  metadata.variants[0].status = "running";
+  metadata.variants[0].sessionId = undefined;
+  metadata.variants[0].sessionIdAvailability = "unavailable";
+  metadata.variants[0].sessionIdUnavailableReason = "test";
+  metadata.variants[0].openCommand = {
+    kind: "open-worktree",
+    backend: "claude-cli",
+    sessionIdAvailability: "unavailable",
+    sessionIdUnavailableReason: "test",
+    command: {
+      cwd: "/missing",
+      argv: ["claude"],
+      shellCommand: "cd /missing && claude",
+    },
+    launchers: {
+      ghostty: {
+        cwd: "/missing",
+        argv: [
+          "open",
+          "-na",
+          "Ghostty.app",
+          "--args",
+          "--working-directory=/missing",
+          "-e",
+          "claude",
+        ],
+        shellCommand: "open -na Ghostty.app --args --working-directory=/missing -e claude",
+      },
+    },
+  };
+  metadata.variants[0].worktree = "/missing";
+
+  await withDiscoverableRun(metadata, async ({ repo }) => {
+    const status = await runCli(["status", "--last", "--json", "--repo", repo]);
+    assert.equal(status.code, 0);
+    assert.equal(JSON.parse(status.stdout).runId, "run");
+
+    const finalized = await runCli(["finalize", "--last", "--json", "--repo", repo]);
+    assert.equal(finalized.code, 0);
+    assert.equal(JSON.parse(finalized.stdout).variants[0].status, "skipped");
+
+    const report = await runCli(["report", "--last", "--repo", repo]);
+    assert.equal(report.code, 0);
+    assert.match(report.stdout, /skipped/);
+
+    const cleanup = await runCli(["cleanup", "--last", "--dry-run", "--json", "--repo", repo]);
+    assert.equal(cleanup.code, 0);
+    assert.equal(JSON.parse(cleanup.stdout).variants[0].status, "missing");
   });
 });
 
