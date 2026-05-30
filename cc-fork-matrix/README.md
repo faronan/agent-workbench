@@ -87,7 +87,7 @@ cc-fork-matrix report --last
 cc-fork-matrix cleanup --last --dry-run --json
 ```
 
-## 本運用手順
+## 日常運用 Runbook
 
 本運用前に local install と build 済み CLI を確認します。
 
@@ -97,17 +97,24 @@ pnpm --dir cc-fork-matrix install-local
 cc-fork-matrix --help
 ```
 
-標準 flow は次の順です。
+### 実装を伴う worktree run
+
+実装作業は matrix run を使います。標準 flow は
+`dry-run -> run --launch --terminal ghostty -> open/status -> report -> finalize -> cleanup`
+です。Zellij は operator が明示した場合だけ使います。
 
 ```bash
 cc-fork-matrix dry-run matrix.yaml
-cc-fork-matrix run matrix.yaml
+cc-fork-matrix run matrix.yaml --launch --terminal ghostty
 cc-fork-matrix status --last --json
 cc-fork-matrix open --last
 cc-fork-matrix report --last
 cc-fork-matrix finalize --last --json
 cc-fork-matrix cleanup --last --dry-run --json
 ```
+
+`status` の default output は人間向け summary です。agent や script は
+`status --json` を使い、`kind` が `ask-run` かどうかを見て lifecycle を分岐します。
 
 `open` は explicit な `<run-dir>` と `--last` の両方を support します。通常の
 `open` は variant ごとの backend-aware shell command を表示します。
@@ -129,6 +136,26 @@ error にします。
 
 cleanup は必ず dry-run から始めます。実削除は、operator が JSON 結果を確認し、
 metadata-listed worktree を消すことを明示承認した後だけ実行してください。
+
+### 相談・レビュー・仮説質問の ask-only fan-out
+
+実装を伴わない相談、レビュー、比較、仮説質問は ask-only fan-out を使います。ask run は
+worktree や branch を作らないため、follow-up は `status`、`report`、`list --json` に
+限定します。`open`、`finalize`、`cleanup` は ask run を明確な理由付きで拒否します。
+
+```bash
+cc-fork-matrix ask --stdin --format yaml --source current --dry-run
+cc-fork-matrix ask --stdin --format yaml --source current
+cc-fork-matrix status --last --json
+cc-fork-matrix report --last
+```
+
+### Cleanup approval surface
+
+cleanup approval surface は `cleanup --last --dry-run --json` です。JSON には `dryRun`、
+`force`、`selection`、worktree status、branch status、run-dir deletion status が含まれます。
+destructive cleanup はこの JSON を提示して承認を得た後だけ実行します。承認を得られない
+場合は、同じ selector から `--dry-run` を外した exact command を案内するだけにします。
 
 ## Matrix file を保存しない運用
 
