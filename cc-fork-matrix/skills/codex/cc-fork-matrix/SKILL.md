@@ -30,6 +30,8 @@ wrapper reports that `dist/cli.js` is missing, run
 
 ## Workflow
 
+Implementation work uses matrix run. Advisory questions use ask-only fan-out.
+
 1. If the user provided a matrix file path, use that file.
 2. Otherwise, create a temporary YAML matrix in memory:
    - Use `source.backend: codex-cli`.
@@ -53,12 +55,13 @@ wrapper reports that `dist/cli.js` is missing, run
    <CC_FORK_MATRIX_CMD> run --stdin --format yaml --source current --launch --terminal ghostty
    ```
 
-   Use `--terminal zellij` only when the user asked for Zellij.
+   Use `--terminal zellij` only when the user explicitly requested Zellij.
 
 ## Follow-up Protocol
 
-- 「結果見て」: run `<CC_FORK_MATRIX_CMD> status --last --json`; if any variant is
-  `running`, run `<CC_FORK_MATRIX_CMD> finalize --last --json`; then run
+- 「結果見て」: run `<CC_FORK_MATRIX_CMD> status --last --json`; if the JSON is a
+  matrix run and any variant is `running`, run
+  `<CC_FORK_MATRIX_CMD> finalize --last --json`; then run
   `<CC_FORK_MATRIX_CMD> report --last`.
 - 「さっきの run をまとめて」: run `<CC_FORK_MATRIX_CMD> status --last --json`
   and `<CC_FORK_MATRIX_CMD> report --last`.
@@ -78,9 +81,11 @@ wrapper reports that `dist/cli.js` is missing, run
 
 ## Ask-only Mode
 
-`cc-fork-matrix ask` is Claude CLI only. From a Codex session, use it only when
-the user provides an explicit Claude source session id or name; otherwise use
-the matrix launch workflow for Codex forks.
+Use ask-only fan-out when the user wants advice, review, comparison, or
+hypothesis checking without implementation. `cc-fork-matrix ask` is Claude CLI
+only. From a Codex session, use it only when the user provides an explicit
+Claude source session id or name; otherwise use the matrix launch workflow for
+Codex forks.
 
 ## Safety
 
@@ -94,6 +99,8 @@ the matrix launch workflow for Codex forks.
 - Do not persist the repository-local tool command in run metadata or reports.
 - Use the normal launcher path; do not invent manual shell commands that expose
   the variant prompt in terminal scrollback.
+- Do not run destructive cleanup before showing the dry-run JSON result and
+  receiving explicit approval.
 - Do not request `git commit`, `git push`, `git merge`, `git rebase`, `git stash`,
   or destructive cleanup.
 - If `CODEX_THREAD_ID` is unavailable, tell the user to pass an explicit source

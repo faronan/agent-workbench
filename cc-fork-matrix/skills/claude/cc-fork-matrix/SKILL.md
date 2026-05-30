@@ -36,6 +36,8 @@ wrapper reports that `dist/cli.js` is missing, run
 
 ## Workflow
 
+Implementation work uses matrix run. Advisory questions use ask-only fan-out.
+
 1. If `$ARGUMENTS` points to an existing `.yaml`, `.yml`, `.toml`, or `.json` file,
    use that matrix file.
 2. Otherwise, create a temporary matrix from the user's request:
@@ -61,12 +63,13 @@ wrapper reports that `dist/cli.js` is missing, run
    <CC_FORK_MATRIX_CMD> run --stdin --format yaml --source current --launch --terminal ghostty
    ```
 
-   Use `--terminal zellij` only when the user asked for Zellij.
+   Use `--terminal zellij` only when the user explicitly requested Zellij.
 
 ## Follow-up Protocol
 
-- 「結果見て」: run `<CC_FORK_MATRIX_CMD> status --last --json`; if any variant is
-  `running`, run `<CC_FORK_MATRIX_CMD> finalize --last --json`; then run
+- 「結果見て」: run `<CC_FORK_MATRIX_CMD> status --last --json`; if the JSON is a
+  matrix run and any variant is `running`, run
+  `<CC_FORK_MATRIX_CMD> finalize --last --json`; then run
   `<CC_FORK_MATRIX_CMD> report --last`.
 - 「さっきの run をまとめて」: run `<CC_FORK_MATRIX_CMD> status --last --json`
   and `<CC_FORK_MATRIX_CMD> report --last`.
@@ -86,9 +89,10 @@ wrapper reports that `dist/cli.js` is missing, run
 
 ## Ask-only Mode
 
-Use `ask` when the user wants multiple advisory viewpoints without worktrees or
-branch changes. Create an in-memory ask YAML with `source.backend: claude-cli`,
-`source.session: current`, and `questions[].question`, then run:
+Use `ask` when the user wants multiple advisory viewpoints, review, comparison,
+or hypothesis checking without worktrees or branch changes. Create an in-memory
+ask YAML with `source.backend: claude-cli`, `source.session: current`, and
+`questions[].question`, then run:
 
 ```bash
 <CC_FORK_MATRIX_CMD> ask --stdin --format yaml --source current --dry-run
@@ -111,6 +115,8 @@ and `list --json` for follow-up.
 - Do not persist the repository-local tool command in run metadata or reports.
 - Use the normal launcher path; do not invent manual shell commands that expose
   the variant prompt in terminal scrollback.
+- Do not run destructive cleanup before showing the dry-run JSON result and
+  receiving explicit approval.
 - Do not request `git commit`, `git push`, `git merge`, `git rebase`, `git stash`,
   or destructive cleanup.
 - If `CLAUDE_CODE_SESSION_ID` is unavailable, tell the user to pass an explicit
