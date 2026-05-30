@@ -121,6 +121,12 @@ test("cleanup dry-run lists clean worktrees without removing them", async () => 
     const output = renderCleanupResult(result);
 
     assert.equal(result.dryRun, true);
+    assert.deepEqual(result.selection, {
+      variant: undefined,
+      exceptVariant: undefined,
+      selectedCount: 2,
+      totalCount: 2,
+    });
     assert.deepEqual(
       result.variants.map((entry) => entry.status),
       ["would-remove", "would-remove"],
@@ -128,7 +134,10 @@ test("cleanup dry-run lists clean worktrees without removing them", async () => 
     assert.equal(await exists(repo.worktreeA), true);
     assert.equal(await exists(repo.worktreeB), true);
     assert.match(output, /Mode: dry-run/);
+    assert.match(output, /Selection: all variants \(2\/2\)/);
     assert.match(output, /status: would-remove/);
+    assert.match(output, /Next:/);
+    assert.match(output, /cleanup .* --dry-run --json/);
   } finally {
     await rm(repo.root, { recursive: true, force: true });
   }
@@ -178,6 +187,12 @@ test("cleanup can select a single variant by name or slug", async () => {
     const result = await cleanupRun(repo.runDir, { dryRun: true, variant: "option-b" });
 
     assert.equal(result.variants.length, 1);
+    assert.deepEqual(result.selection, {
+      variant: "option-b",
+      exceptVariant: undefined,
+      selectedCount: 1,
+      totalCount: 2,
+    });
     assert.equal(result.variants[0].slug, "option-b");
     assert.equal(result.variants[0].status, "would-remove");
     assert.equal(await exists(repo.worktreeA), true);

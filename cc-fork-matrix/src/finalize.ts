@@ -129,3 +129,38 @@ export async function finalizeRun(runDir: string): Promise<FinalizeResult> {
   await writeFile(resolve(resolvedRunDir, "report.md"), renderReport(metadata));
   return { runDir: resolvedRunDir, finalizedAt, variants };
 }
+
+function verificationSummary(variant: FinalizeVariantResult): string {
+  if (variant.verification.length === 0) {
+    return "not run";
+  }
+  return variant.verification
+    .map((entry) => `${entry.name}:${entry.code === 0 ? "pass" : `fail(${entry.code})`}`)
+    .join(", ");
+}
+
+export function renderFinalizeResult(result: FinalizeResult): string {
+  const lines = [
+    `Finalize complete: ${result.runDir}`,
+    `Finalized at: ${result.finalizedAt}`,
+    "",
+    "Variants:",
+  ];
+  for (const variant of result.variants) {
+    lines.push(
+      `- ${variant.name} [${variant.slug}]: ${variant.previousStatus} -> ${variant.status}`,
+    );
+    lines.push(`  changedFiles: ${variant.changedFiles.length}`);
+    lines.push(`  verification: ${verificationSummary(variant)}`);
+    if (variant.error) {
+      lines.push(`  error: ${variant.error}`);
+    }
+  }
+  lines.push(
+    "",
+    "Next:",
+    `- cc-fork-matrix report ${result.runDir}`,
+    `- cc-fork-matrix cleanup ${result.runDir} --dry-run --json`,
+  );
+  return `${lines.join("\n")}\n`;
+}

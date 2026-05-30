@@ -101,7 +101,9 @@ export async function printOpenCommand(
 ): Promise<string> {
   const metadata = await readMetadata(resolve(runDir, "metadata.json"));
   if (isAskRunMetadata(metadata)) {
-    throw new UserFacingError("open is not supported for ask runs. Use status or report instead.");
+    throw new UserFacingError(
+      "open is not supported for ask runs because they have no worktrees. Use status or report instead.",
+    );
   }
   if (options.terminal === "zellij" && variantName) {
     throw new UserFacingError(

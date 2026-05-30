@@ -3,7 +3,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { finalizeRun } from "../src/finalize.ts";
+import { finalizeRun, renderFinalizeResult } from "../src/finalize.ts";
 import { runCommand } from "../src/shell.ts";
 import type { RunMetadata, VariantResult, VerificationCommand } from "../src/types.ts";
 
@@ -128,10 +128,15 @@ test("finalize marks changed running variants as succeeded when no verification 
     await writeFile(join(repo.worktree, "changed.txt"), "changed\n");
 
     const result = await finalizeRun(repo.runDir);
+    const output = renderFinalizeResult(result);
 
     assert.equal(result.variants[0].previousStatus, "running");
     assert.equal(result.variants[0].status, "succeeded");
     assert.deepEqual(result.variants[0].changedFiles, ["changed.txt"]);
+    assert.match(output, /Finalize complete:/);
+    assert.match(output, /Option A \[option-a\]: running -> succeeded/);
+    assert.match(output, /changedFiles: 1/);
+    assert.match(output, /Next:/);
 
     const metadata = JSON.parse(await readFile(join(repo.runDir, "metadata.json"), "utf8"));
     assert.equal(metadata.variants[0].status, "succeeded");

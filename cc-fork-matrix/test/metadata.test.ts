@@ -200,9 +200,22 @@ test("open, report, and status reject invalid metadata consistently", async () =
   });
 });
 
-test("status prints validated current metadata", async () => {
+test("status prints a concise human summary by default", async () => {
   await withMetadataFile(validMetadata(), async ({ runDir }) => {
     const output = await printStatus(runDir);
+    assert.match(output, /Run: demo \(run\)/);
+    assert.match(output, /Kind: matrix-run/);
+    assert.match(output, /Variants:/);
+    assert.match(output, /- A \[a\]: succeeded/);
+    assert.match(output, /Next:/);
+    assert.doesNotMatch(output, /"openCommand"/);
+    assert.match(output, /\n$/);
+  });
+});
+
+test("status json prints validated current metadata", async () => {
+  await withMetadataFile(validMetadata(), async ({ runDir }) => {
+    const output = await printStatus(runDir, { json: true });
     assert.equal(JSON.parse(output).variants[0].openCommand.kind, "resume-session");
     assert.match(output, /\n$/);
   });

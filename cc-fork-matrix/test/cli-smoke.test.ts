@@ -262,9 +262,22 @@ for (const command of ["open", "status", "report"] as const) {
   });
 }
 
-test("status prints valid metadata through the CLI", async () => {
+test("status prints a human summary through the CLI", async () => {
   await withRunDir(validMetadata(), async ({ runDir }) => {
     const result = await runCli(["status", runDir]);
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    assert.match(result.stdout, /Run: demo \(run\)/);
+    assert.match(result.stdout, /Kind: matrix-run/);
+    assert.match(result.stdout, /- A \[a\]: succeeded/);
+    assert.doesNotMatch(result.stdout, /"openCommand"/);
+  });
+});
+
+test("status --json prints valid metadata through the CLI", async () => {
+  await withRunDir(validMetadata(), async ({ runDir }) => {
+    const result = await runCli(["status", runDir, "--json"]);
 
     assert.equal(result.code, 0);
     assert.equal(result.stderr, "");
@@ -282,6 +295,10 @@ test("cleanup dry-run prints structured metadata-scoped results", async () => {
     const payload = JSON.parse(result.stdout);
     assert.equal(payload.runDir, runDir);
     assert.equal(payload.dryRun, true);
+    assert.deepEqual(payload.selection, {
+      selectedCount: 1,
+      totalCount: 1,
+    });
     assert.equal(payload.variants[0].name, "A");
     assert.equal(payload.variants[0].status, "missing");
   });
@@ -624,7 +641,13 @@ test("built CLI status and report accept ask run metadata", async () => {
     const status = await runCli(["status", runDir]);
     assert.equal(status.code, 0);
     assert.equal(status.stderr, "");
-    assert.equal(JSON.parse(status.stdout).kind, "ask-run");
+    assert.match(status.stdout, /Run: ask demo \(ask-run\)/);
+    assert.match(status.stdout, /open\/finalize\/cleanup: not supported for ask runs/);
+
+    const statusJson = await runCli(["status", runDir, "--json"]);
+    assert.equal(statusJson.code, 0);
+    assert.equal(statusJson.stderr, "");
+    assert.equal(JSON.parse(statusJson.stdout).kind, "ask-run");
 
     const report = await runCli(["report", runDir]);
     assert.equal(report.code, 0);
@@ -633,6 +656,24 @@ test("built CLI status and report accept ask run metadata", async () => {
     assert.match(report.stdout, /question-hash/);
   });
 });
+
+for (const command of ["open", "finalize", "cleanup"] as const) {
+  test(`built CLI ${command} rejects ask run metadata with a lifecycle reason`, async () => {
+    await withRunDir({}, async ({ runDir }) => {
+      await writeFile(
+        join(runDir, "metadata.json"),
+        `${JSON.stringify(validAskMetadata(runDir), null, 2)}\n`,
+      );
+
+      const result = await runCli([command, runDir]);
+
+      assert.equal(result.code, 1);
+      assert.equal(result.stdout, "");
+      assert.match(result.stderr, /ask runs/i);
+      assert.match(result.stderr, /no worktrees|use status or report/i);
+    });
+  });
+}
 
 test("run launch requires a terminal", async () => {
   const result = await runCli(["run", "matrix.yaml", "--launch"]);
