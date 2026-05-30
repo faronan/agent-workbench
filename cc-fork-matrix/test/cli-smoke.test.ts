@@ -353,6 +353,75 @@ test("status, report, cleanup, and finalize resolve --last through the latest po
   });
 });
 
+test("open resolves --last for Zellij dry-run json", async () => {
+  await withDiscoverableRun(validMetadata(), async ({ repo, runDir }) => {
+    const result = await runCli([
+      "open",
+      "--last",
+      "--terminal",
+      "zellij",
+      "--dry-run",
+      "--json",
+      "--repo",
+      repo,
+    ]);
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    const payload = JSON.parse(result.stdout);
+    assert.equal(payload.sessionName, "ccfm-run");
+    assert.equal(payload.layout, "tabs");
+    assert.equal(payload.runDir, await realpath(runDir));
+    assert.equal(payload.tabs[0].slug, "a");
+    assert.equal(payload.tabs[0].cwd, "/worktree/a");
+    assert.equal(payload.tabs[0].commandKind, "resume-session");
+    assert.equal(payload.tabs[0].backend, "claude-cli");
+    assert.doesNotMatch(result.stdout, /shellCommand/);
+    assert.doesNotMatch(result.stdout, /claude --resume/);
+  });
+});
+
+test("open rejects Zellij split layout", async () => {
+  const result = await runCli([
+    "open",
+    "run-dir",
+    "--terminal",
+    "zellij",
+    "--layout",
+    "splits",
+    "--dry-run",
+  ]);
+
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /zellij open mode only supports the tabs layout/i);
+});
+
+test("open rejects Zellij variant selection", async () => {
+  await withRunDir(validMetadata(), async ({ runDir }) => {
+    const result = await runCli([
+      "open",
+      runDir,
+      "--terminal",
+      "zellij",
+      "--variant",
+      "a",
+      "--dry-run",
+    ]);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /open --terminal zellij opens the full run/);
+  });
+});
+
+test("open rejects Zellij json without dry-run", async () => {
+  await withRunDir(validMetadata(), async ({ runDir }) => {
+    const result = await runCli(["open", runDir, "--terminal", "zellij", "--json"]);
+
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /--json can only be combined with --terminal zellij/);
+  });
+});
+
 test("run launch dry-run prints Ghostty launch targets without prompt text", async () => {
   const repo = await tempRepo();
   try {

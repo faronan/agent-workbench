@@ -62,6 +62,10 @@ wrapper reports that `dist/cli.js` is missing, run
   `<CC_FORK_MATRIX_CMD> report --last`.
 - 「さっきの run をまとめて」: run `<CC_FORK_MATRIX_CMD> status --last --json`
   and `<CC_FORK_MATRIX_CMD> report --last`.
+- 「Zellijで開いて」: run
+  `<CC_FORK_MATRIX_CMD> open --last --terminal zellij --dry-run --json`, show the
+  session name and tabs, then ask before running
+  `<CC_FORK_MATRIX_CMD> open --last --terminal zellij`.
 - 「A案だけ残して」: run
   `<CC_FORK_MATRIX_CMD> cleanup --last --except <slug> --dry-run --json`, show the
   result, and ask before running the same cleanup without `--dry-run`.

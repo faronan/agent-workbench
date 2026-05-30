@@ -127,10 +127,19 @@ function metadata(): RunMetadata {
   };
 }
 
-async function withRunDir(fn: (runDir: string) => Promise<void>): Promise<void> {
+function availableMetadata(): RunMetadata {
+  const value = metadata();
+  value.variants = value.variants.slice(0, 2);
+  return value;
+}
+
+async function withRunDir(
+  fn: (runDir: string) => Promise<void>,
+  runMetadata: RunMetadata = metadata(),
+): Promise<void> {
   const runDir = await mkdtemp(join(tmpdir(), "ccfm-open-"));
   try {
-    await writeFile(join(runDir, "metadata.json"), `${JSON.stringify(metadata(), null, 2)}\n`);
+    await writeFile(join(runDir, "metadata.json"), `${JSON.stringify(runMetadata, null, 2)}\n`);
     await fn(runDir);
   } finally {
     await rm(runDir, { recursive: true, force: true });
@@ -193,6 +202,97 @@ test("rejects Ghostty launch when selected variants include unavailable commands
         /Manual commands/.test(error.message),
     );
   });
+});
+
+test("prints Zellij dry-run output without shell commands", async () => {
+  await withRunDir(async (runDir) => {
+    const output = await printOpenCommand(runDir, undefined, {
+      terminal: "zellij",
+      dryRun: true,
+    });
+
+    assert.match(output, /Zellij session: ccfm-run/);
+    assert.match(output, /Layout: tabs/);
+    assert.match(output, /- claude-a/);
+    assert.match(output, /name: Claude A/);
+    assert.match(output, /cwd: \/worktree\/a/);
+    assert.match(output, /commandKind: resume-session/);
+    assert.match(output, /backend: claude-cli/);
+    assert.doesNotMatch(output, /claude --resume/);
+    assert.doesNotMatch(output, /cd \/worktree/);
+  }, availableMetadata());
+});
+
+test("prints Zellij dry-run json without launch commands", async () => {
+  await withRunDir(async (runDir) => {
+    const output = await printOpenCommand(runDir, undefined, {
+      terminal: "zellij",
+      dryRun: true,
+      json: true,
+    });
+    const payload = JSON.parse(output);
+
+    assert.equal(payload.sessionName, "ccfm-run");
+    assert.equal(payload.layout, "tabs");
+    assert.equal(payload.tabs[0].slug, "claude-a");
+    assert.equal(payload.tabs[0].cwd, "/worktree/a");
+    assert.equal(payload.tabs[0].commandKind, "resume-session");
+    assert.equal(payload.tabs[0].backend, "claude-cli");
+    assert.doesNotMatch(output, /shellCommand/);
+    assert.doesNotMatch(output, /claude --resume/);
+  }, availableMetadata());
+});
+
+test("rejects Zellij open when selected variants include unavailable commands", async () => {
+  await withRunDir(async (runDir) => {
+    await assert.rejects(
+      () => printOpenCommand(runDir, undefined, { terminal: "zellij", dryRun: true }),
+      (error) =>
+        error instanceof UserFacingError &&
+        /Cannot open all selected variants in Zellij/.test(error.message) &&
+        /Unavailable C/.test(error.message),
+    );
+  });
+});
+
+test("rejects Zellij open with a selected variant", async () => {
+  await withRunDir(async (runDir) => {
+    await assert.rejects(
+      () => printOpenCommand(runDir, "codex-b", { terminal: "zellij", dryRun: true }),
+      (error) =>
+        error instanceof UserFacingError &&
+        /open --terminal zellij opens the full run/.test(error.message),
+    );
+  }, availableMetadata());
+});
+
+test("rejects Zellij json launch without dry-run", async () => {
+  await withRunDir(async (runDir) => {
+    await assert.rejects(
+      () => printOpenCommand(runDir, undefined, { terminal: "zellij", json: true }),
+      (error) =>
+        error instanceof UserFacingError &&
+        /--json can only be combined with --terminal zellij when --dry-run is set/.test(
+          error.message,
+        ),
+    );
+  }, availableMetadata());
+});
+
+test("rejects Zellij split layout", async () => {
+  await withRunDir(async (runDir) => {
+    await assert.rejects(
+      () =>
+        printOpenCommand(runDir, undefined, {
+          terminal: "zellij",
+          layout: "splits",
+          dryRun: true,
+        }),
+      (error) =>
+        error instanceof UserFacingError &&
+        /zellij open mode only supports the tabs layout/.test(error.message),
+    );
+  }, availableMetadata());
 });
 
 test("rejects json with Ghostty terminal mode", async () => {
