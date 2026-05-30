@@ -8,11 +8,10 @@
 - Run-level Group Launcher は未実装です。
 - 複数 variant の起動は `run --launch --terminal ghostty|zellij` を使います。
 - Zellij launch mode は tabs のみ support します。
-- `open` は `--last` を support しません。`status --last --json` または `list --json` で
-  `runDir` を確認してから `open <run-dir>` を実行します。
+- `open` は `--last` を support します。通常の worktree run は `open --last` で再開用
+  command を確認できます。
 
 ## Follow-up 候補
 
 - Run-level Group Launcher の設計と実装。
-- `open` の latest run 解決を support するかどうかの再検討。
 - terminal launcher ごとの user smoke を継続し、README ではなくこの document に結果を残す。

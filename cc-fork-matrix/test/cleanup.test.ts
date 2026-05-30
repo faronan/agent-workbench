@@ -121,6 +121,12 @@ test("cleanup dry-run lists clean worktrees without removing them", async () => 
     const output = renderCleanupResult(result);
 
     assert.equal(result.dryRun, true);
+    assert.deepEqual(result.selection, {
+      variant: undefined,
+      exceptVariant: undefined,
+      selectedCount: 2,
+      totalCount: 2,
+    });
     assert.deepEqual(
       result.variants.map((entry) => entry.status),
       ["would-remove", "would-remove"],
@@ -128,7 +134,10 @@ test("cleanup dry-run lists clean worktrees without removing them", async () => 
     assert.equal(await exists(repo.worktreeA), true);
     assert.equal(await exists(repo.worktreeB), true);
     assert.match(output, /Mode: dry-run/);
+    assert.match(output, /Selection: all variants \(2\/2\)/);
     assert.match(output, /status: would-remove/);
+    assert.match(output, /Next:/);
+    assert.match(output, /cleanup .* --dry-run --json/);
   } finally {
     await rm(repo.root, { recursive: true, force: true });
   }
@@ -176,10 +185,27 @@ test("cleanup can select a single variant by name or slug", async () => {
   const repo = await tempRepo();
   try {
     const result = await cleanupRun(repo.runDir, { dryRun: true, variant: "option-b" });
+    const output = renderCleanupResult(result);
 
     assert.equal(result.variants.length, 1);
+    assert.deepEqual(result.selection, {
+      variant: "option-b",
+      exceptVariant: undefined,
+      selectedCount: 1,
+      totalCount: 2,
+    });
     assert.equal(result.variants[0].slug, "option-b");
     assert.equal(result.variants[0].status, "would-remove");
+    assert.match(output, /Review JSON:/);
+    assert.ok(
+      output.includes(
+        `cc-fork-matrix cleanup ${result.runDir} --variant option-b --dry-run --json`,
+      ),
+    );
+    assert.ok(
+      output.includes(`After approval: cc-fork-matrix cleanup ${result.runDir} --variant option-b`),
+    );
+    assert.doesNotMatch(output, /After approval:.*--dry-run/);
     assert.equal(await exists(repo.worktreeA), true);
     assert.equal(await exists(repo.worktreeB), true);
   } finally {
@@ -226,8 +252,21 @@ test("cleanup can delete selected branches after worktree removal", async () => 
       dryRun: true,
       deleteBranches: true,
       exceptVariant: "option-a",
+      force: true,
     });
+    const output = renderCleanupResult(dryRun);
     assert.equal(dryRun.variants[0].branchStatus, "would-delete");
+    assert.ok(
+      output.includes(
+        `cc-fork-matrix cleanup ${dryRun.runDir} --except option-a --force --delete-branches --dry-run --json`,
+      ),
+    );
+    assert.ok(
+      output.includes(
+        `After approval: cc-fork-matrix cleanup ${dryRun.runDir} --except option-a --force --delete-branches`,
+      ),
+    );
+    assert.doesNotMatch(output, /After approval:.*--dry-run/);
     assert.equal(await branchExists(repo.repo, "cleanup/option-b"), true);
 
     const result = await cleanupRun(repo.runDir, {
@@ -247,7 +286,14 @@ test("cleanup can delete the run artifact directory only for full cleanup", asyn
   const repo = await tempRepo();
   try {
     const result = await cleanupRun(repo.runDir, { deleteRunDir: true, dryRun: true });
+    const output = renderCleanupResult(result);
     assert.equal(result.runDirStatus, "would-delete");
+    assert.ok(
+      output.includes(`cc-fork-matrix cleanup ${result.runDir} --delete-run-dir --dry-run --json`),
+    );
+    assert.ok(
+      output.includes(`After approval: cc-fork-matrix cleanup ${result.runDir} --delete-run-dir`),
+    );
     assert.equal(await exists(repo.runDir), true);
 
     const removed = await cleanupRun(repo.runDir, { deleteRunDir: true, force: true });

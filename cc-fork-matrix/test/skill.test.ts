@@ -22,5 +22,9 @@ for (const skillPath of [
     assert.match(text, /cleanup --last --except/);
     assert.match(text, /cleanup --last --dry-run --json/);
     assert.match(text, /report --last/);
+    assert.match(text, /Implementation work uses matrix run/);
+    assert.match(text, /Advisory questions use ask-only fan-out/);
+    assert.match(text, /Use `--terminal zellij` only when the user explicitly requested Zellij/);
+    assert.match(text, /Do not run destructive cleanup before showing the dry-run JSON result/);
   });
 }

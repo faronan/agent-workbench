@@ -31,6 +31,12 @@ export interface CleanupResult {
   force: boolean;
   deleteBranches: boolean;
   deleteRunDir: boolean;
+  selection: {
+    variant?: string;
+    exceptVariant?: string;
+    selectedCount: number;
+    totalCount: number;
+  };
   runDirStatus?: "would-delete" | "deleted" | "kept";
   variants: CleanupVariantResult[];
 }
@@ -177,9 +183,49 @@ export async function cleanupRun(
     force: Boolean(options.force),
     deleteBranches: Boolean(options.deleteBranches),
     deleteRunDir: Boolean(options.deleteRunDir),
+    selection: {
+      variant: options.variant,
+      exceptVariant: options.exceptVariant,
+      selectedCount: targetVariants.length,
+      totalCount: metadata.variants.length,
+    },
     runDirStatus: options.deleteRunDir ? (options.dryRun ? "would-delete" : "deleted") : "kept",
     variants,
   };
+}
+
+function renderSelection(result: CleanupResult): string {
+  const count = `${result.selection.selectedCount}/${result.selection.totalCount}`;
+  if (result.selection.variant) {
+    return `variant ${result.selection.variant} (${count})`;
+  }
+  if (result.selection.exceptVariant) {
+    return `all except ${result.selection.exceptVariant} (${count})`;
+  }
+  return `all variants (${count})`;
+}
+
+function cleanupCommand(result: CleanupResult, options: { dryRunJson?: boolean } = {}): string {
+  const args = ["cc-fork-matrix", "cleanup", result.runDir];
+  if (result.selection.variant) {
+    args.push("--variant", result.selection.variant);
+  }
+  if (result.selection.exceptVariant) {
+    args.push("--except", result.selection.exceptVariant);
+  }
+  if (result.force) {
+    args.push("--force");
+  }
+  if (result.deleteBranches) {
+    args.push("--delete-branches");
+  }
+  if (result.deleteRunDir) {
+    args.push("--delete-run-dir");
+  }
+  if (options.dryRunJson) {
+    args.push("--dry-run", "--json");
+  }
+  return args.join(" ");
 }
 
 export function renderCleanupResult(result: CleanupResult): string {
@@ -189,6 +235,7 @@ export function renderCleanupResult(result: CleanupResult): string {
     `Force: ${result.force ? "yes" : "no"}`,
     `Delete branches: ${result.deleteBranches ? "yes" : "no"}`,
     `Delete run dir: ${result.deleteRunDir ? "yes" : "no"}`,
+    `Selection: ${renderSelection(result)}`,
     "",
     "Worktrees:",
   ];
@@ -198,6 +245,15 @@ export function renderCleanupResult(result: CleanupResult): string {
     lines.push(`  branch: ${variant.branch}`);
     lines.push(`  branchStatus: ${variant.branchStatus ?? "kept"}`);
     lines.push(`  worktree: ${variant.worktree}`);
+  }
+  lines.push("");
+  if (result.dryRun) {
+    lines.push("Next:");
+    lines.push(`- Review JSON: ${cleanupCommand(result, { dryRunJson: true })}`);
+    lines.push(`- After approval: ${cleanupCommand(result)}`);
+  } else {
+    lines.push("Next:");
+    lines.push(`- Verify: cc-fork-matrix status ${result.runDir}`);
   }
   return `${lines.join("\n")}\n`;
 }

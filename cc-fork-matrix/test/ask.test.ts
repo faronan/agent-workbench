@@ -449,13 +449,21 @@ test("status and report accept ask metadata but open finalize cleanup reject it"
     assert.equal(metadata.kind, "ask-run");
 
     const status = await printStatus(runDir);
-    assert.equal(JSON.parse(status).kind, "ask-run");
+    assert.match(status, /Run: ask demo \(ask-run\)/);
+    assert.match(status, /Questions:/);
+    assert.match(status, /open\/finalize\/cleanup: not supported for ask runs/);
+
+    const statusJson = await printStatus(runDir, { json: true });
+    assert.equal(JSON.parse(statusJson).kind, "ask-run");
 
     const report = await regenerateReport(runDir);
     assert.match(report, /cc-fork-matrix ask report/);
     assert.match(report, /contract-first/);
 
-    await assert.rejects(() => printOpenCommand(runDir), /ask run/i);
+    await assert.rejects(
+      () => printOpenCommand(runDir),
+      /ask runs because they have no worktrees/i,
+    );
     await assert.rejects(() => finalizeRun(runDir), /ask run/i);
     await assert.rejects(() => cleanupRun(runDir, { dryRun: true }), /ask run/i);
   });

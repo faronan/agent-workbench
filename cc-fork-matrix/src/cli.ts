@@ -3,7 +3,7 @@ import { resolveAskRun } from "./ask-resolve.ts";
 import { askDryRunJson, renderAskDryRun, runAsk } from "./ask-runner.ts";
 import { cleanupRun, renderCleanupResult } from "./cleanup.ts";
 import { UserFacingError } from "./errors.ts";
-import { finalizeRun } from "./finalize.ts";
+import { finalizeRun, renderFinalizeResult } from "./finalize.ts";
 import { launchDryRunJson, renderLaunchDryRun } from "./launch.ts";
 import { parseMatrixText, readMatrixFile } from "./matrix.ts";
 import { printOpenCommand } from "./open.ts";
@@ -251,7 +251,7 @@ async function main(argv: string[]): Promise<number> {
   }
   if (options.command === "status") {
     const runDir = await resolveRunDirFromCli(options);
-    process.stdout.write(await printStatus(runDir));
+    process.stdout.write(await printStatus(runDir, { json: options.json }));
     return 0;
   }
   if (options.command === "ask") {
@@ -283,9 +283,7 @@ async function main(argv: string[]): Promise<number> {
     const runDir = await resolveRunDirFromCli(options);
     const result = await finalizeRun(runDir);
     process.stdout.write(
-      options.json
-        ? `${JSON.stringify(result, null, 2)}\n`
-        : `Finalize complete: ${result.runDir}\n`,
+      options.json ? `${JSON.stringify(result, null, 2)}\n` : renderFinalizeResult(result),
     );
     return 0;
   }
