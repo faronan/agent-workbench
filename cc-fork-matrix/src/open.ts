@@ -8,15 +8,25 @@ import {
   renderManualCommands,
 } from "./ghostty.ts";
 import { readMetadata } from "./metadata.ts";
-import type { GhosttyLayout, TerminalLauncher, VariantResult } from "./types.ts";
+import type { GhosttyLayout, LaunchLayout, TerminalLauncher, VariantResult } from "./types.ts";
 import { isAskRunMetadata } from "./types.ts";
+import {
+  launchZellijWorkspace,
+  renderZellijOpenDryRun,
+  type ZellijOpenTab,
+  type ZellijWorkspaceOptions,
+  type ZellijWorkspacePlan,
+  zellijOpenDryRunJson,
+  zellijSessionName,
+} from "./zellij.ts";
 
 interface OpenOptions {
   json?: boolean;
   terminal?: TerminalLauncher;
-  layout?: GhosttyLayout;
+  layout?: LaunchLayout;
   dryRun?: boolean;
   ghostty?: Partial<GhosttyLaunchOptions>;
+  zellij?: ZellijWorkspaceOptions;
 }
 
 function openLine(variant: VariantResult): string {
@@ -59,6 +69,31 @@ function ghosttyTargets(variants: VariantResult[]): GhosttyOpenTarget[] {
   }));
 }
 
+function zellijPlan(runId: string, runDir: string, variants: VariantResult[]): ZellijWorkspacePlan {
+  const unavailable = variants.filter((variant) => variant.openCommand.kind === "unavailable");
+  if (unavailable.length > 0) {
+    throw new UserFacingError(
+      `Cannot open all selected variants in Zellij:\n${unavailable
+        .map((variant) => `- ${variant.name}: ${variant.openCommand.sessionIdUnavailableReason}`)
+        .join("\n")}`,
+    );
+  }
+  const tabs: ZellijOpenTab[] = variants.map((variant) => ({
+    name: variant.name,
+    slug: variant.slug,
+    cwd: variant.openCommand.command.cwd,
+    commandKind: variant.openCommand.kind,
+    backend: variant.openCommand.backend,
+    command: variant.openCommand.command,
+  }));
+  return {
+    sessionName: zellijSessionName(runId),
+    runDir,
+    layout: "tabs",
+    tabs,
+  };
+}
+
 export async function printOpenCommand(
   runDir: string,
   variantName?: string,
@@ -68,6 +103,11 @@ export async function printOpenCommand(
   if (isAskRunMetadata(metadata)) {
     throw new UserFacingError("open is not supported for ask runs. Use status or report instead.");
   }
+  if (options.terminal === "zellij" && variantName) {
+    throw new UserFacingError(
+      "open --terminal zellij opens the full run and cannot be combined with --variant.",
+    );
+  }
   const variants = variantName
     ? metadata.variants.filter(
         (variant) => variant.name === variantName || variant.slug === variantName,
@@ -76,26 +116,45 @@ export async function printOpenCommand(
   if (variants.length === 0) {
     throw new UserFacingError(`No variant found for ${variantName ?? "(all)"}.`);
   }
-  if (options.terminal && options.json) {
+  if (options.terminal === "ghostty" && options.json) {
     throw new UserFacingError("--json cannot be combined with --terminal ghostty.");
   }
-  if (options.terminal && options.terminal !== "ghostty") {
-    throw new UserFacingError("open --terminal only supports ghostty.");
+  if (options.terminal === "zellij" && options.json && !options.dryRun) {
+    throw new UserFacingError(
+      "--json can only be combined with --terminal zellij when --dry-run is set.",
+    );
   }
-  if (options.layout && options.terminal !== "ghostty") {
-    throw new UserFacingError("--layout requires --terminal ghostty.");
+  if (options.terminal && options.terminal !== "ghostty" && options.terminal !== "zellij") {
+    throw new UserFacingError("open --terminal only supports ghostty or zellij.");
+  }
+  if (options.layout && !options.terminal) {
+    throw new UserFacingError("--layout requires --terminal ghostty|zellij.");
+  }
+  if (options.terminal === "zellij" && options.layout && options.layout !== "tabs") {
+    throw new UserFacingError("zellij open mode only supports the tabs layout.");
   }
   if (options.dryRun && !options.terminal) {
-    throw new UserFacingError("open --dry-run requires --terminal ghostty.");
+    throw new UserFacingError("open --dry-run requires --terminal ghostty|zellij.");
   }
   if (options.terminal === "ghostty") {
-    const layout = options.layout ?? "tabs";
+    const layout = (options.layout ?? "tabs") as GhosttyLayout;
     const targets = ghosttyTargets(variants);
     if (options.dryRun) {
       return renderGhosttyDryRun(targets, layout);
     }
     await launchGhostty(targets, { ...options.ghostty, layout });
     return `Launched Ghostty ${layout} layout for ${targets.length} variant(s).\n`;
+  }
+  if (options.terminal === "zellij") {
+    const plan = zellijPlan(metadata.runId, resolve(runDir), variants);
+    if (options.dryRun) {
+      if (options.json) {
+        return `${JSON.stringify(zellijOpenDryRunJson(plan), null, 2)}\n`;
+      }
+      return renderZellijOpenDryRun(plan);
+    }
+    await launchZellijWorkspace(plan, options.zellij);
+    return `Opened Zellij session ${plan.sessionName} for ${plan.tabs.length} variant(s).\n`;
   }
   if (options.json) {
     return `${JSON.stringify(variants.map(openPayload), null, 2)}\n`;

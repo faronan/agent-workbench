@@ -103,18 +103,29 @@ cc-fork-matrix --help
 cc-fork-matrix dry-run matrix.yaml
 cc-fork-matrix run matrix.yaml
 cc-fork-matrix status --last --json
-cc-fork-matrix open <run-dir>
+cc-fork-matrix open --last
 cc-fork-matrix report --last
 cc-fork-matrix finalize --last --json
 cc-fork-matrix cleanup --last --dry-run --json
 ```
 
-`run` は run directory を出力します。`open` は `--last` を support していないため、
-`run` の出力、`status --last --json`、または `list --json` で `runDir` を確認してから
-使います。
+`open` は explicit な `<run-dir>` と `--last` の両方を support します。通常の
+`open` は variant ごとの backend-aware shell command を表示します。
 
 terminal launch では通常 `run --launch --terminal ghostty` を使います。Zellij を使う
 場合だけ `run --launch --terminal zellij` を指定します。
+作成済み run を 1 つの Zellij session にまとめて開く場合は、先に dry-run で確認します。
+
+```bash
+cc-fork-matrix open --last --terminal zellij --dry-run --json
+cc-fork-matrix open --last --terminal zellij
+```
+
+Zellij open は `ccfm-<runId>` という deterministic session を使います。Zellij の
+session name 長制限に当たる runId では `ccfm-<short-hash>` に短縮します。1 variant を
+1 tab として開き、既存 active session がある場合は duplicate を作らず attach します。
+終了済み session が同名で残っている場合は resurrect せず、削除してから再実行するよう
+error にします。
 
 cleanup は必ず dry-run から始めます。実削除は、operator が JSON 結果を確認し、
 metadata-listed worktree を消すことを明示承認した後だけ実行してください。
@@ -264,10 +275,13 @@ $HOME/.local/bin/cc-fork-matrix --help
 variant worktree に未 commit の変更があります。まず worktree を確認してください。
 変更を捨てる意図が明確な場合だけ `--force` を使います。
 
-### `open --last` が使えない
+### Zellij open が既存 session に attach する
 
-`open` は explicit な `<run-dir>` を要求します。`status --last --json` または
-`list --json` で `runDir` を確認してから実行してください。
+`open --terminal zellij` は deterministic session がすでに存在する場合、新しい tab を
+追加せず active session に attach します。終了済み session が同名で残っている場合は
+resurrect せず、`zellij delete-session --force <sessionName>` を案内します。tabs を作り直
+したい場合は、dry-run JSON の `sessionName` で対象 session を確認し、Zellij 側で終了
+してから再実行してください。
 
 ## 開発
 

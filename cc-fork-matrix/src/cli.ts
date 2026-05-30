@@ -1,4 +1,3 @@
-import { resolve } from "node:path";
 import { parseAskConfigText, readAskConfigFile } from "./ask-config.ts";
 import { resolveAskRun } from "./ask-resolve.ts";
 import { askDryRunJson, renderAskDryRun, runAsk } from "./ask-runner.ts";
@@ -33,8 +32,9 @@ Usage:
   cc-fork-matrix list --json
   cc-fork-matrix finalize <run-dir> [--json]
   cc-fork-matrix finalize --last [--json]
-  cc-fork-matrix open <run-dir> [--variant <name>] [--json]
+  cc-fork-matrix open <run-dir|--last> [--variant <name>] [--json]
   cc-fork-matrix open <run-dir> --terminal ghostty [--layout tabs|splits] [--variant <name>] [--dry-run]
+  cc-fork-matrix open <run-dir|--last> --terminal zellij [--layout tabs] [--dry-run] [--json]
   cc-fork-matrix cleanup <run-dir|--last> [--variant <name>] [--except <name>] [--dry-run] [--force] [--delete-branches] [--delete-run-dir] [--json]
   cc-fork-matrix schema
 
@@ -173,9 +173,6 @@ function parseArgs(argv: string[]): CliOptions {
   if (options.launch && !isRunCommand) {
     throw new UserFacingError("--launch is only supported by run and dry-run.");
   }
-  if (options.terminal && options.command === "open" && options.terminal !== "ghostty") {
-    throw new UserFacingError("open --terminal only supports ghostty.");
-  }
   if (options.terminal && options.command !== "open" && !(isRunCommand && options.launch)) {
     throw new UserFacingError("--terminal is only supported by open or run --launch.");
   }
@@ -186,10 +183,8 @@ function parseArgs(argv: string[]): CliOptions {
     throw new UserFacingError("--layout requires --terminal ghostty|zellij.");
   }
   if (options.layout && options.terminal === "zellij" && options.layout !== "tabs") {
-    throw new UserFacingError("zellij launch mode only supports the tabs layout.");
-  }
-  if (options.layout && options.command === "open" && options.terminal !== "ghostty") {
-    throw new UserFacingError("--layout requires --terminal ghostty.");
+    const mode = options.command === "open" ? "open" : "launch";
+    throw new UserFacingError(`zellij ${mode} mode only supports the tabs layout.`);
   }
   if (options.last && options.matrixPath) {
     throw new UserFacingError("--last cannot be combined with an explicit run directory.");
@@ -295,11 +290,9 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (options.command === "open") {
-    if (!options.matrixPath) {
-      throw new UserFacingError("open requires <run-dir>.");
-    }
+    const runDir = await resolveRunDirFromCli(options);
     process.stdout.write(
-      await printOpenCommand(resolve(options.matrixPath), options.variant, {
+      await printOpenCommand(runDir, options.variant, {
         json: options.json,
         terminal: options.terminal,
         layout: options.layout,
