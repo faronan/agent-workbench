@@ -5,7 +5,12 @@ import { join } from "node:path";
 import test from "node:test";
 import { parseAskConfigText } from "../src/ask-config.ts";
 import { resolveAskRun } from "../src/ask-resolve.ts";
-import { askDryRunJson, renderAskDryRun, runAsk } from "../src/ask-runner.ts";
+import {
+  askDryRunJson,
+  createAskMetadataWriter,
+  renderAskDryRun,
+  runAsk,
+} from "../src/ask-runner.ts";
 import { cleanupRun } from "../src/cleanup.ts";
 import { finalizeRun } from "../src/finalize.ts";
 import { readMetadata } from "../src/metadata.ts";
@@ -13,7 +18,7 @@ import { printOpenCommand } from "../src/open.ts";
 import { regenerateReport } from "../src/report.ts";
 import { runCommand } from "../src/shell.ts";
 import { printStatus } from "../src/status.ts";
-import type { AskRunMetadata } from "../src/types.ts";
+import type { AskQuestionResult, AskRunMetadata } from "../src/types.ts";
 
 const HIDDEN_QUESTION = "Hidden contract question with OPENAI_API_KEY=secret";
 
@@ -90,6 +95,26 @@ function askMetadata(runDir: string): AskRunMetadata {
   };
 }
 
+function deferred(): { promise: Promise<void>; resolve: () => void } {
+  let resolve!: () => void;
+  const promise = new Promise<void>((innerResolve) => {
+    resolve = innerResolve;
+  });
+  return { promise, resolve };
+}
+
+function askQuestionResult(name: string, runDir: string): AskQuestionResult {
+  return {
+    name,
+    slug: name,
+    status: "succeeded",
+    questionSha256: `hash-${name}`,
+    backend: "claude-cli",
+    artifactDir: join(runDir, name),
+    answerSummaryPath: join(runDir, name, "summary.md"),
+  };
+}
+
 async function withAskMetadata(
   fn: (args: { runDir: string; metadata: AskRunMetadata }) => Promise<void>,
 ): Promise<void> {
@@ -102,6 +127,53 @@ async function withAskMetadata(
     await rm(runDir, { recursive: true, force: true });
   }
 }
+
+test("serializes ask metadata writes through one queue", async () => {
+  const runDir = await mkdtemp(join(tmpdir(), "ccfm-ask-serialized-"));
+  try {
+    const metadata = askMetadata(runDir);
+    metadata.questions = [];
+    const metadataPath = join(runDir, "metadata.json");
+    const releases: Array<() => void> = [];
+    const persistedSlugs: string[][] = [];
+    const writer = createAskMetadataWriter({
+      metadata,
+      metadataPath,
+      persist: async (path, nextMetadata) => {
+        const gate = deferred();
+        releases.push(gate.resolve);
+        await gate.promise;
+        persistedSlugs.push(nextMetadata.questions.map((question) => question.slug));
+        await writeFile(path, `${JSON.stringify(nextMetadata, null, 2)}\n`);
+      },
+    });
+
+    const first = writer(askQuestionResult("first", runDir));
+    const second = writer(askQuestionResult("second", runDir));
+
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(releases.length, 1);
+
+    releases[0]();
+    await first;
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(releases.length, 2);
+
+    releases[1]();
+    await second;
+
+    const persisted = JSON.parse(await readFile(metadataPath, "utf8")) as AskRunMetadata;
+    assert.deepEqual(persistedSlugs, [["first"], ["first", "second"]]);
+    assert.deepEqual(
+      persisted.questions.map((question) => question.slug),
+      ["first", "second"],
+    );
+  } finally {
+    await rm(runDir, { recursive: true, force: true });
+  }
+});
 
 test("parses ask schema without matrix variants", async () => {
   const repo = await tempRepo();
@@ -223,6 +295,76 @@ echo '{"session_id":"11111111-1111-1111-1111-111111111111","result":"Safe answer
     assert.match(callLog, /\nplan\n/);
     assert.match(callLog, /--output-format/);
     assert.match(callLog, /\njson\n/);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test("persists every ask question after high-concurrency fan-out", async () => {
+  const repo = await tempRepo();
+  const fakeClaude = join(repo, "fake-claude-ask-many.sh");
+  await writeFile(
+    fakeClaude,
+    `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "fake claude 0.0.0"
+  exit 0
+fi
+echo '{"result":"Safe answer summary"}'
+`,
+  );
+  await chmod(fakeClaude, 0o755);
+  await runCommand("git", ["add", "fake-claude-ask-many.sh"], repo);
+  await runCommand("git", ["commit", "-m", "add many fake claude ask"], repo);
+
+  try {
+    const questionCount = 12;
+    const questions = Array.from(
+      { length: questionCount },
+      (_, index) => `  - name: q-${String(index + 1).padStart(2, "0")}
+    question: |
+      Evaluate option ${index + 1}.
+`,
+    ).join("");
+    const parsed = parseAskConfigText(
+      `
+version: 1
+name: high-concurrency-ask
+repo: ${repo}
+source:
+  backend: claude-cli
+  session: explicit-session
+ask:
+  concurrency: ${questionCount}
+backend:
+  claude:
+    command: ${fakeClaude}
+questions:
+${questions}`,
+      "yaml",
+    );
+    const resolved = await resolveAskRun(
+      parsed.config,
+      parsed.hash,
+      { command: "ask", runId: "ask-many" },
+      "run",
+    );
+
+    await runAsk(resolved, parsed.hash);
+
+    const persisted = await readMetadata(join(resolved.runDir, "metadata.json"));
+    assert.equal(persisted.kind, "ask-run");
+    if (persisted.kind !== "ask-run") {
+      assert.fail("expected ask-run metadata");
+    }
+    assert.equal(persisted.questions.length, questionCount);
+    assert.deepEqual(
+      persisted.questions.map((question) => question.slug).sort(),
+      Array.from(
+        { length: questionCount },
+        (_, index) => `q-${String(index + 1).padStart(2, "0")}`,
+      ),
+    );
   } finally {
     await rm(repo, { recursive: true, force: true });
   }

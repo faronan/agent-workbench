@@ -13,6 +13,9 @@ import type {
 
 const TOOL_VERSION = "0.1.0";
 
+type AskMetadataPersist = (path: string, metadata: AskRunMetadata) => Promise<void>;
+type AskMetadataWriter = (question: AskQuestionResult) => Promise<void>;
+
 function scrubQuestion(text: string, question: string): string {
   const redacted = redact(text);
   return redacted
@@ -59,24 +62,37 @@ async function writeAskMetadata(path: string, metadata: AskRunMetadata): Promise
   await writeFile(path, `${JSON.stringify(metadata, null, 2)}\n`);
 }
 
-async function writeQuestionResult(args: {
-  question: ResolvedAskQuestion;
+export function createAskMetadataWriter(args: {
   metadata: AskRunMetadata;
   metadataPath: string;
+  persist?: AskMetadataPersist;
+}): AskMetadataWriter {
+  const persist = args.persist ?? writeAskMetadata;
+  let queue = Promise.resolve();
+  return (question) => {
+    queue = queue.then(async () => {
+      upsertQuestion(args.metadata, question);
+      await persist(args.metadataPath, args.metadata);
+    });
+    return queue;
+  };
+}
+
+async function writeQuestionResult(args: {
+  question: ResolvedAskQuestion;
   result: AskQuestionResult;
+  writeQuestionMetadata: AskMetadataWriter;
   answerSummary?: string;
 }): Promise<void> {
   await mkdir(args.question.artifactDir, { recursive: true });
   await writeAskQuestionSummary(args.question.answerSummaryPath, args.result, args.answerSummary);
-  upsertQuestion(args.metadata, args.result);
-  await writeAskMetadata(args.metadataPath, args.metadata);
+  await args.writeQuestionMetadata(args.result);
 }
 
 async function runQuestion(args: {
   resolved: ResolvedAskRun;
   question: ResolvedAskQuestion;
-  metadata: AskRunMetadata;
-  metadataPath: string;
+  writeQuestionMetadata: AskMetadataWriter;
 }): Promise<AskQuestionResult> {
   const startedAt = new Date().toISOString();
   const started = Date.now();
@@ -120,9 +136,8 @@ async function runQuestion(args: {
   };
   await writeQuestionResult({
     question: args.question,
-    metadata: args.metadata,
-    metadataPath: args.metadataPath,
     result,
+    writeQuestionMetadata: args.writeQuestionMetadata,
     answerSummary,
   });
   return result;
@@ -178,6 +193,7 @@ export async function runAsk(resolved: ResolvedAskRun, inputHash: string): Promi
   const metadataPath = resolve(resolved.runDir, "metadata.json");
   const metadata = initialAskMetadata(resolved, inputHash);
   await writeAskMetadata(metadataPath, metadata);
+  const writeQuestionMetadata = createAskMetadataWriter({ metadata, metadataPath });
   await writeLatestPointers({
     repoRoot: resolved.repoRoot,
     stateRoot: resolved.stateRoot,
@@ -191,7 +207,7 @@ export async function runAsk(resolved: ResolvedAskRun, inputHash: string): Promi
       const question = resolved.questions[nextIndex];
       nextIndex += 1;
       try {
-        await runQuestion({ resolved, question, metadata, metadataPath });
+        await runQuestion({ resolved, question, writeQuestionMetadata });
       } catch (error) {
         const result: AskQuestionResult = {
           name: question.name,
@@ -203,7 +219,7 @@ export async function runAsk(resolved: ResolvedAskRun, inputHash: string): Promi
           answerSummaryPath: question.answerSummaryPath,
           error: scrubQuestion((error as Error).message, question.question),
         };
-        await writeQuestionResult({ question, metadata, metadataPath, result });
+        await writeQuestionResult({ question, result, writeQuestionMetadata });
       }
     }
   }
@@ -211,6 +227,7 @@ export async function runAsk(resolved: ResolvedAskRun, inputHash: string): Promi
   await Promise.all(
     Array.from({ length: Math.max(1, resolved.concurrency) }, async () => worker()),
   );
+  await writeAskMetadata(metadataPath, metadata);
   await writeFile(resolve(resolved.runDir, "report.md"), renderReport(metadata));
   return metadata;
 }
