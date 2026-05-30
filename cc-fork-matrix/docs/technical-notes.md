@@ -22,6 +22,23 @@ claude --resume <source-session> --fork-session --name <run-id>-<variant-slug> <
 Claude launch mode では `claude --worktree` は使いません。branch と worktree 作成は
 `cc-fork-matrix` が担い、dry-run plan を deterministic に保ちます。
 
+Ask-only mode は Claude CLI print mode だけを support します。ユーザー環境で確認済みの
+surface は `-p/--print`、`--resume`、`--fork-session`、`--name`、`--output-format json`、
+`--tools ""`、`--permission-mode plan` です。実行 argv は次の形です。
+
+```text
+claude -p --resume <source-session> --fork-session --name <run-id>-<question-slug> --output-format json --tools "" --permission-mode plan <ask-prompt>
+```
+
+`ask-prompt` は memory 上だけで組み立て、metadata、report、dry-run、shell command には
+書きません。Claude CLI の JSON field が変わった場合は推測で進めず、次のような
+user-run smoke で current surface を確認してから parser を更新します。
+
+```bash
+cd /Users/toshiki.ito/ghq/github.com/faronan/agent-workbench
+claude -p --resume "$CLAUDE_CODE_SESSION_ID" --fork-session --name ccfm-json-probe --output-format json --tools "" --permission-mode plan "Reply with exactly: ccfm-json-probe-ok"
+```
+
 ## Prompt redaction
 
 raw prompt と full terminal launch command は metadata、report、`open` output に書きません。
@@ -35,6 +52,11 @@ launch metadata は terminal、layout、launch strategy、
 
 launch mode の `--dry-run` は `promptSha256`、branch、worktree、verification command name、
 launch target を表示します。raw prompt、`codex fork`、`claude --resume` command は表示しません。
+
+ask-only mode は raw question、raw generated prompt、raw transcript、full backend stdout/stderr
+を保存しません。durable metadata は `questionSha256`、name、backend、source、status、
+session id availability、summary path に限定します。回答 summary は `redact()` 後に
+`summary.md` へ保存します。failure 時だけ redacted/truncated error を metadata に残します。
 
 ## Ghostty / Zellij launcher
 

@@ -1,4 +1,4 @@
-import type { ResolvedVariant } from "./types.ts";
+import type { ResolvedAskQuestion, ResolvedVariant } from "./types.ts";
 
 export function buildVariantPrompt(variant: ResolvedVariant): string {
   return [
@@ -15,5 +15,22 @@ export function buildVariantPrompt(variant: ResolvedVariant): string {
     "",
     "Variant task:",
     variant.prompt,
+  ].join("\n");
+}
+
+export function buildAskQuestionPrompt(question: ResolvedAskQuestion): string {
+  return [
+    "You are running as a cc-fork-matrix ask-only advisory fork.",
+    `Question: ${question.name}`,
+    "",
+    "Rules:",
+    "- Answer only the question below.",
+    "- Do not modify files.",
+    "- Do not run tools.",
+    "- Do not include secrets in your final response.",
+    "- Return a concise final answer summary.",
+    "",
+    "Question text:",
+    question.question,
   ].join("\n");
 }

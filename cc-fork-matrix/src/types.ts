@@ -11,6 +11,8 @@ export type VariantStatus =
   | "verification_failed"
   | "interrupted"
   | "skipped";
+export type AskQuestionStatus = "pending" | "running" | "succeeded" | "failed" | "interrupted";
+export type AskAnswerPolicy = "final-summary-only";
 
 export interface VerificationCommand {
   name: string;
@@ -48,6 +50,37 @@ export interface MatrixDefinition {
     commands?: VerificationCommand[];
   };
   variants: VariantDefinition[];
+}
+
+export interface AskDefinition {
+  version: 1;
+  name: string;
+  repo?: string;
+  source?: {
+    backend?: BackendId;
+    session?: string;
+  };
+  ask?: {
+    concurrency?: number;
+    stateRoot?: string;
+    saveAnswers?: boolean;
+    answerPolicy?: AskAnswerPolicy;
+  };
+  backend?: {
+    claude?: {
+      command?: string;
+      maxTurns?: number;
+    };
+    codex?: {
+      command?: string;
+    };
+  };
+  questions: AskQuestionDefinition[];
+}
+
+export interface AskQuestionDefinition {
+  name: string;
+  question: string;
 }
 
 export interface VariantDefinition {
@@ -122,6 +155,32 @@ export interface ResolvedVariant {
   verificationCommands: VerificationCommand[];
 }
 
+export interface ResolvedAskRun {
+  config: AskDefinition;
+  inputHash: string;
+  runId: string;
+  repoRoot: string;
+  stateRoot: string;
+  runDir: string;
+  sourceSession: string;
+  sourceResolvedFrom: "explicit" | "env";
+  sourceEnv?: "CLAUDE_CODE_SESSION_ID";
+  backend: BackendId;
+  concurrency: number;
+  saveAnswers: boolean;
+  answerPolicy: AskAnswerPolicy;
+  questions: ResolvedAskQuestion[];
+}
+
+export interface ResolvedAskQuestion {
+  name: string;
+  slug: string;
+  question: string;
+  questionSha256: string;
+  artifactDir: string;
+  answerSummaryPath: string;
+}
+
 export interface CommandResult {
   code: number | null;
   signal: NodeJS.Signals | null;
@@ -139,6 +198,17 @@ export interface BackendRunResult {
   summary: string;
   stdout: string;
   stderr: string;
+}
+
+export interface AskBackendResult {
+  status: "success" | "failed" | "interrupted";
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  sessionId?: string;
+  sessionIdAvailability?: "captured" | "unavailable";
+  sessionIdUnavailableReason?: string;
+  summary: string;
+  error?: string;
 }
 
 export type SessionIdAvailability = "captured" | "unavailable";
@@ -232,8 +302,9 @@ export interface VariantResult {
   error?: string;
 }
 
-export interface RunMetadata {
+export interface MatrixRunMetadata {
   schemaVersion: 1;
+  kind?: "matrix-run";
   toolVersion: string;
   runId: string;
   name: string;
@@ -253,4 +324,50 @@ export interface RunMetadata {
   dirtyBaseStatus: string;
   launch?: RunLaunchMetadata;
   variants: VariantResult[];
+}
+
+export interface AskQuestionResult {
+  name: string;
+  slug: string;
+  status: AskQuestionStatus;
+  questionSha256: string;
+  backend: BackendId;
+  artifactDir: string;
+  answerSummaryPath: string;
+  sessionId?: string;
+  startedAt?: string;
+  finishedAt?: string;
+  durationMs?: number;
+  backendExitCode?: number | null;
+  backendSignal?: NodeJS.Signals | null;
+  sessionIdAvailability?: SessionIdAvailability;
+  sessionIdUnavailableReason?: string;
+  error?: string;
+}
+
+export interface AskRunMetadata {
+  schemaVersion: 1;
+  kind: "ask-run";
+  toolVersion: string;
+  runId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+  repoRoot: string;
+  source: {
+    backend: BackendId;
+    session: string;
+    resolvedFrom?: "explicit" | "env";
+    env?: "CLAUDE_CODE_SESSION_ID";
+  };
+  inputHash: string;
+  answerPolicy: AskAnswerPolicy;
+  saveAnswers: boolean;
+  questions: AskQuestionResult[];
+}
+
+export type RunMetadata = MatrixRunMetadata | AskRunMetadata;
+
+export function isAskRunMetadata(metadata: RunMetadata): metadata is AskRunMetadata {
+  return metadata.kind === "ask-run";
 }

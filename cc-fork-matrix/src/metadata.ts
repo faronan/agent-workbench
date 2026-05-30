@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { assertRunMetadata, invalidMetadata } from "./metadata-contract.ts";
-import type { RunMetadata, VariantResult } from "./types.ts";
+import type { MatrixRunMetadata, RunMetadata, VariantResult } from "./types.ts";
+import { isAskRunMetadata } from "./types.ts";
 
 export function initialMetadata(args: {
   toolVersion: string;
@@ -16,7 +17,7 @@ export function initialMetadata(args: {
   matrixHash: string;
   dirtyBase: boolean;
   dirtyBaseStatus: string;
-}): RunMetadata {
+}): MatrixRunMetadata {
   const now = new Date().toISOString();
   return {
     schemaVersion: 1,
@@ -60,7 +61,10 @@ export async function readMetadata(path: string): Promise<RunMetadata> {
   return value;
 }
 
-export function upsertVariant(metadata: RunMetadata, variant: VariantResult): void {
+export function upsertVariant(metadata: MatrixRunMetadata, variant: VariantResult): void {
+  if (isAskRunMetadata(metadata)) {
+    invalidMetadata("ask-run metadata cannot contain variants");
+  }
   const index = metadata.variants.findIndex((entry) => entry.slug === variant.slug);
   if (index >= 0) {
     metadata.variants[index] = variant;

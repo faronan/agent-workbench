@@ -1,4 +1,7 @@
 import { resolve } from "node:path";
+import { parseAskConfigText, readAskConfigFile } from "./ask-config.ts";
+import { resolveAskRun } from "./ask-resolve.ts";
+import { askDryRunJson, renderAskDryRun, runAsk } from "./ask-runner.ts";
 import { cleanupRun, renderCleanupResult } from "./cleanup.ts";
 import { UserFacingError } from "./errors.ts";
 import { finalizeRun } from "./finalize.ts";
@@ -20,6 +23,8 @@ Usage:
   cc-fork-matrix run <matrix.yaml>
   cc-fork-matrix run <matrix.yaml> --launch --terminal ghostty|zellij [--layout tabs|splits] [--dry-run]
   cc-fork-matrix run --stdin --format yaml
+  cc-fork-matrix ask <questions.yaml>
+  cc-fork-matrix ask --stdin --format yaml [--dry-run] [--json]
   cc-fork-matrix dry-run <matrix.yaml|--stdin>
   cc-fork-matrix report <run-dir>
   cc-fork-matrix report --last
@@ -211,6 +216,17 @@ async function loadMatrix(options: CliOptions) {
   return readMatrixFile(options.matrixPath);
 }
 
+async function loadAskConfig(options: CliOptions) {
+  if (options.stdin) {
+    const format = options.format ?? "yaml";
+    return parseAskConfigText(await readStdin(), format);
+  }
+  if (!options.matrixPath) {
+    throw new UserFacingError("Ask config path is required unless --stdin is set.");
+  }
+  return readAskConfigFile(options.matrixPath);
+}
+
 async function main(argv: string[]): Promise<number> {
   const options = parseArgs(argv);
   if (options.command === "help") {
@@ -241,6 +257,31 @@ async function main(argv: string[]): Promise<number> {
   if (options.command === "status") {
     const runDir = await resolveRunDirFromCli(options);
     process.stdout.write(await printStatus(runDir));
+    return 0;
+  }
+  if (options.command === "ask") {
+    const parsed = await loadAskConfig(options);
+    const dry = Boolean(options.dryRun);
+    const resolved = await resolveAskRun(
+      parsed.config,
+      parsed.hash,
+      options,
+      dry ? "dry-run" : "run",
+    );
+    if (dry) {
+      process.stdout.write(
+        options.json
+          ? `${JSON.stringify(askDryRunJson(resolved), null, 2)}\n`
+          : renderAskDryRun(resolved),
+      );
+      return 0;
+    }
+    const metadata = await runAsk(resolved, parsed.hash);
+    process.stdout.write(
+      options.json
+        ? `${JSON.stringify(metadata, null, 2)}\n`
+        : `Ask run complete: ${resolved.runDir}\n`,
+    );
     return 0;
   }
   if (options.command === "finalize") {

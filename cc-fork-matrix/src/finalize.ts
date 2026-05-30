@@ -1,9 +1,11 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { UserFacingError } from "./errors.ts";
 import { pathExists } from "./git.ts";
 import { readMetadata, upsertVariant, writeMetadata } from "./metadata.ts";
 import { renderReport } from "./report.ts";
 import type { RunMetadata, VariantResult } from "./types.ts";
+import { isAskRunMetadata } from "./types.ts";
 import {
   artifactPathsForVariant,
   collectDiff,
@@ -99,6 +101,11 @@ export async function finalizeRun(runDir: string): Promise<FinalizeResult> {
   const resolvedRunDir = resolve(runDir);
   const path = metadataPath(resolvedRunDir);
   const metadata: RunMetadata = await readMetadata(path);
+  if (isAskRunMetadata(metadata)) {
+    throw new UserFacingError(
+      "finalize is not supported for ask runs because they have no worktrees.",
+    );
+  }
   const finalizedAt = new Date().toISOString();
   const variants: FinalizeVariantResult[] = [];
 

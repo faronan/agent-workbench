@@ -4,6 +4,7 @@ import { UserFacingError } from "./errors.ts";
 import { branchExists, deleteBranch, dirtyStatus, pathExists, removeWorktree } from "./git.ts";
 import { readMetadata } from "./metadata.ts";
 import type { VariantResult } from "./types.ts";
+import { isAskRunMetadata } from "./types.ts";
 
 export interface CleanupOptions {
   dryRun?: boolean;
@@ -93,6 +94,11 @@ export async function cleanupRun(
 ): Promise<CleanupResult> {
   const resolvedRunDir = resolve(runDir);
   const metadata = await readMetadata(metadataPath(resolvedRunDir));
+  if (isAskRunMetadata(metadata)) {
+    throw new UserFacingError(
+      "cleanup is not supported for ask runs because they have no worktrees.",
+    );
+  }
   const targetVariants = selectedVariants(metadata.variants, options);
   if (options.deleteRunDir && targetVariants.length !== metadata.variants.length) {
     throw new UserFacingError("--delete-run-dir requires cleanup of all variants.");

@@ -3,7 +3,8 @@
 `cc-fork-matrix` は、Claude Code または Codex のセッションを複数の仮説
 セッションへ分岐し、それぞれを独立した git worktree と branch で実行する
 ローカル CLI です。複数案の実装・検証・比較を、base repository を汚しにくい形で
-進めるために使います。
+進めるために使います。ask-only mode では worktree や branch を作らず、複数の質問を
+別 fork session に分離して投げられます。
 
 この tool は検証結果、diff、metadata、比較 report を記録しますが、raw transcript、
 raw prompt、secrets は保存しません。
@@ -15,6 +16,7 @@ raw prompt、secrets は保存しません。
 - dry-run で branch、worktree、prompt hash、verification command を事前確認する。
 - run 後に status/report/finalize で結果を確認する。
 - cleanup dry-run で削除対象を確認し、必要な worktree だけ片付ける。
+- ask-only mode で複数の advisory question を batch 実行し、回答 summary を保存する。
 
 ## インストール / 更新
 
@@ -135,11 +137,53 @@ agent から使う場合は、同梱 skill template を参照します。
 - Codex: `skills/codex/cc-fork-matrix/SKILL.md`
 - Claude Code: `skills/claude/cc-fork-matrix/SKILL.md`
 
+## Ask-only 運用
+
+同じ session に質問を重ねて context を汚したくない場合は `ask` を使います。`ask` は
+worktree、branch、verification、cleanup を使わず、Claude Code の fork session に
+質問だけを投げます。
+
+```yaml
+version: 1
+name: architecture-advice
+source:
+  backend: claude-cli
+  session: current
+ask:
+  concurrency: 3
+questions:
+  - name: contract-first
+    question: |
+      Evaluate the contract-first approach.
+  - name: minimal-change
+    question: |
+      Evaluate the minimal-change approach.
+```
+
+file を保存しない daily use では stdin 経由で渡します。
+
+```bash
+cc-fork-matrix ask --stdin --format yaml --source current --dry-run
+cc-fork-matrix ask --stdin --format yaml --source current
+cc-fork-matrix report --last
+cc-fork-matrix status --last --json
+```
+
+`ask` は raw question、raw generated prompt、raw transcript、backend stdout/stderr を
+保存しません。metadata と report には question name、`questionSha256`、status、
+session id availability、summary path だけを残します。回答本文は redaction 後に
+各 question の `summary.md` へ保存します。
+
+`open`、`finalize`、`cleanup` は ask run では使いません。ask run の確認は `status`、
+`report`、`list --json` に統一してください。
+
 ## 基本概念
 
 - `matrix`: run 全体の入力設定。backend、source session、variant、verification を定義します。
+- `ask config`: worktree を作らない advisory question set です。
 - `variant`: 試したい実装案。variant ごとに branch/worktree が作られます。
 - `run`: matrix を解決して実行した 1 回分の記録です。
+- `ask run`: question ごとの answer summary と metadata を保存する ask-only run です。
 - `worktree`: variant を隔離して作業する git worktree です。
 - `stateRoot`: run metadata、variant summary、report を保存する directory です。
 - `finalize`: launch 後の running variant から diff と verification result を再収集します。
@@ -158,6 +202,10 @@ Codex 管理外の session から実行する場合は、`--source <SESSION_ID>`
 
 `run --launch` は worktree 作成後に terminal target で fork command をまとめて起動します。
 Ghostty は `tabs|splits`、Zellij は `tabs` のみを support します。
+
+`ask` は現時点では `claude-cli` のみを support します。Claude CLI print mode で
+`--tools ""` と `--permission-mode plan` を指定し、advisory-only に寄せます。
+Codex は headless fork capture surface が無いため unsupported です。
 
 内部 command、prompt redaction、Ghostty/Zellij launcher の詳細は
 [`docs/technical-notes.md`](docs/technical-notes.md) を参照してください。
@@ -185,6 +233,7 @@ directory は、`--delete-branches` または `--delete-run-dir` を指定しな
 ## 安全性
 
 - raw transcript、raw prompt、secrets は保存しません。
+- ask-only mode は raw question を保存せず、`questionSha256` だけを保存します。
 - launch/dry-run/report には prompt body や full launch command を出しません。
 - base repo が dirty の場合、`--allow-dirty-base` または `run.dirtyBase: allow` が無い限り
   run を停止します。
