@@ -304,6 +304,23 @@ test("cleanup dry-run prints structured metadata-scoped results", async () => {
   });
 });
 
+test("cleanup dry-run human output preserves selected follow-up command flags", async () => {
+  await withRunDir(validMetadata(), async ({ runDir }) => {
+    const result = await runCli(["cleanup", runDir, "--variant", "A", "--dry-run"]);
+
+    assert.equal(result.code, 0);
+    assert.equal(result.stderr, "");
+    assert.match(result.stdout, /Review JSON:/);
+    assert.ok(
+      result.stdout.includes(`cc-fork-matrix cleanup ${runDir} --variant A --dry-run --json`),
+    );
+    assert.ok(
+      result.stdout.includes(`After approval: cc-fork-matrix cleanup ${runDir} --variant A`),
+    );
+    assert.doesNotMatch(result.stdout, /After approval:.*--dry-run/);
+  });
+});
+
 test("list prints discoverable runs as json", async () => {
   await withDiscoverableRun(validMetadata(), async ({ repo, runDir }) => {
     const result = await runCli(["list", "--json", "--repo", repo]);

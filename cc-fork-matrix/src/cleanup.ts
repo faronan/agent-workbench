@@ -205,6 +205,29 @@ function renderSelection(result: CleanupResult): string {
   return `all variants (${count})`;
 }
 
+function cleanupCommand(result: CleanupResult, options: { dryRunJson?: boolean } = {}): string {
+  const args = ["cc-fork-matrix", "cleanup", result.runDir];
+  if (result.selection.variant) {
+    args.push("--variant", result.selection.variant);
+  }
+  if (result.selection.exceptVariant) {
+    args.push("--except", result.selection.exceptVariant);
+  }
+  if (result.force) {
+    args.push("--force");
+  }
+  if (result.deleteBranches) {
+    args.push("--delete-branches");
+  }
+  if (result.deleteRunDir) {
+    args.push("--delete-run-dir");
+  }
+  if (options.dryRunJson) {
+    args.push("--dry-run", "--json");
+  }
+  return args.join(" ");
+}
+
 export function renderCleanupResult(result: CleanupResult): string {
   const lines = [
     `Run dir: ${result.runDir}`,
@@ -226,8 +249,8 @@ export function renderCleanupResult(result: CleanupResult): string {
   lines.push("");
   if (result.dryRun) {
     lines.push("Next:");
-    lines.push(`- Review: cc-fork-matrix cleanup ${result.runDir} --dry-run --json`);
-    lines.push("- After approval, re-run cleanup without --dry-run using the same selectors.");
+    lines.push(`- Review JSON: ${cleanupCommand(result, { dryRunJson: true })}`);
+    lines.push(`- After approval: ${cleanupCommand(result)}`);
   } else {
     lines.push("Next:");
     lines.push(`- Verify: cc-fork-matrix status ${result.runDir}`);
